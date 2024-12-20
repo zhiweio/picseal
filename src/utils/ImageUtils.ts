@@ -25,6 +25,7 @@ export const ExhibitionImages = [
   './exhibition/xiaomi.jpg',
   './exhibition/nikon.jpg',
   './exhibition/sony.jpg',
+  './exhibition/panasonic.jpg',
 ]
 
 // 格式化 GPS 数据
@@ -43,6 +44,9 @@ export function formatGPS(gps: string | undefined, gpsRef: string | undefined): 
 
 // 格式化品牌
 export function formatBrand(make: string | undefined): string {
+  if ((make || '') === 'Arashi Vision') {
+    return 'insta360'
+  }
   const brand = (make || '').toLowerCase()
   for (const b of BrandsList.map(b => b.toLowerCase())) {
     if (brand.includes(b)) {
@@ -74,6 +78,10 @@ export function formatModel(model: string, brand: string): string {
   }
   if (brand === 'nikon corporation') {
     return camera_model.replace(/Z/gi, 'ℤ')
+  }
+  if (brand === 'panasonic') {
+    if (camera_model.startsWith('DMC-') || camera_model.startsWith('DC-'))
+      return `LUMIX ${camera_model}`
   }
   return camera_model
 }

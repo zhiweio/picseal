@@ -16,7 +16,7 @@ import './styles/App.css'
 
 export const IconFont = createFromIconfontCN({
   scriptUrl: [
-    '//at.alicdn.com/t/c/font_4757469_u2nszgglli.js', // icon-apple, icon-jianeng, icon-DJI, icon-fushi, icon-huawei1, icon-laika, icon-icon-xiaomiguishu, icon-nikon, icon-sony
+    '//at.alicdn.com/t/c/font_4757469_kkotyy5658l.js', // icon-apple, icon-jianeng, icon-DJI, icon-fushi, icon-huawei1, icon-laika, icon-icon-xiaomiguishu, icon-nikon, icon-sony
   ],
 })
 
@@ -135,6 +135,22 @@ function App() {
             <IconFont type="icon-sony" style={{ fontSize: '28px' }} />
             Sony
           </Button>
+          <Button type="primary" shape="round" size="default" ghost onClick={() => handleExhibitionClick('panasonic')}>
+            <IconFont type="icon-panasonic" style={{ fontSize: '36px' }} />
+            Panasonic
+          </Button>
+          <Button type="primary" shape="round" size="default" ghost onClick={() => handleExhibitionClick('ricoh')}>
+            <IconFont type="icon-ricoh" style={{ fontSize: '28px' }} />
+            Ricoh
+          </Button>
+          <Button type="primary" shape="round" size="default" ghost onClick={() => handleExhibitionClick('olympus')}>
+            <IconFont type="icon-olympus" style={{ fontSize: '36px' }} />
+            Olympus
+          </Button>
+          <Button type="primary" shape="round" size="default" ghost onClick={() => handleExhibitionClick('insta360')}>
+            <IconFont type="icon-insta360" style={{ fontSize: '46px' }} />
+            Insta360
+          </Button>
         </Flex>
       </div>
 
@@ -188,10 +204,18 @@ function App() {
             initialValues={formValue}
             onValuesChange={handleFormChange}
           >
-            <Form.Item label="型号" name="model">
+            <Form.Item label="横幅大小" name="scale">
+              <Slider
+                min={0.5}
+                max={1.2}
+                step={0.1}
+                onChange={handleScaleChange}
+              />
+            </Form.Item>
+            <Form.Item label="相机型号" name="model">
               <Input />
             </Form.Item>
-            <Form.Item label="品牌" name="brand">
+            <Form.Item label="相机品牌" name="brand">
               <Select style={{ width: 170 }}>
                 {BrandsList.map(brand => (
                   <Select.Option key={brand} value={brand.toLowerCase()}>
@@ -200,13 +224,13 @@ function App() {
                 ))}
               </Select>
             </Form.Item>
-            <Form.Item label="参数" name="device">
+            <Form.Item label="拍摄参数" name="device">
               <Input />
             </Form.Item>
-            <Form.Item label="时间" name="date">
+            <Form.Item label="拍摄时间" name="date">
               <Input />
             </Form.Item>
-            <Form.Item label="经纬" name="gps">
+            <Form.Item label="拍摄地点" name="gps">
               <Input />
             </Form.Item>
             <Form.Item label="字体大小" name="fontSize">
@@ -233,14 +257,6 @@ function App() {
                 <Select.Option value="avenir">Avenir</Select.Option>
                 <Select.Option value="didot">Didot</Select.Option>
               </Select>
-            </Form.Item>
-            <Form.Item label="横幅缩放" name="scale">
-              <Slider
-                min={0.5}
-                max={1.2}
-                step={0.1}
-                onChange={handleScaleChange}
-              />
             </Form.Item>
           </Form>
         </div>
