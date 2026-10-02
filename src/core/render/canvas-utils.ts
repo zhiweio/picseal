@@ -1,9 +1,9 @@
 /**
  * 字体加载与文本绘制 —— worker 与主线程通用（无 DOM 依赖）。
  *
- * 墨迹文本（ink text）：semi-utils 的 rich_text 先把文字裁切到墨迹包围盒
- * 再缩放到目标高度（光学对齐）；Canvas 等价实现 = 用 TextMetrics 的
- * actualBoundingBox* 测墨迹盒，按目标墨迹高反推 fontPx 后绘制。
+ * 文本度量：semi-utils 以"元素高度"定字号；Canvas 等价实现按字体行盒
+ * （fontBoundingBox，只随字体/字号变化、与字符串无关）反推 fontPx，
+ * 同一横幅/文字列内所有行共享同一字号，行盒内垂直居中落基线。
  */
 import { getFontFamily, type FontFamilyId } from '../fonts/registry'
 
@@ -73,23 +73,30 @@ export interface InkStyle {
 }
 
 export interface InkMetrics {
-  /** 达到目标墨迹高所需的 fontPx */
+  /** 达到目标行盒高所需的 fontPx（由字体行盒推得，与字符串无关） */
   fontPx: number
-  /** 墨迹宽（px） */
+  /** 文本推进宽（px） */
   width: number
-  /** 墨迹高（px） */
+  /** 墨迹高（px，actualBoundingBoxAscent+Descent，随字符串变化） */
   height: number
-  /** 墨迹顶到基线的距离 */
+  /** 字体行盒高（px，fontBoundingBoxAscent+Descent，同字体同字号恒定） */
+  boxH: number
+  /** 字体行盒顶到基线的距离（px） */
   ascent: number
-  /** 对齐点到墨迹左缘的距离（Canvas actualBoundingBoxLeft 语义） */
-  left: number
 }
 
 function fontShorthand(def: { cssName: string }, weight: number, px: number): string {
   return `${weight} ${px}px "${def.cssName}", sans-serif`
 }
 
-/** 测量一行文字的墨迹盒，返回按目标墨迹高缩放后的精确度量 */
+/**
+ * semi-utils 以"元素高"定字号；Canvas 等价实现按字体行盒（fontBoundingBox，
+ * 只依赖字体与字号、与字符串无关）反推 fontPx —— 同一横幅内所有行天然共享
+ * 同一 fontPx，'-' 等低矮占位符不会把字号撑爆。
+ * INK_FILTER 补偿行盒与墨迹（大写高度）之差，使视觉密度对齐 semi-utils。
+ */
+const INK_FILTER = 1.45
+
 export function measureInk(
   ctx: Ctx2D,
   rawText: string,
@@ -102,21 +109,30 @@ export function measureInk(
 
   ctx.font = fontShorthand(def, weight, PROBE_PX)
   const probe = ctx.measureText(text || ' ')
-  const probeInkH = probe.actualBoundingBoxAscent + probe.actualBoundingBoxDescent
-  const fontPx = probeInkH > 0 ? (targetHeight * PROBE_PX) / probeInkH : targetHeight
+  const fbA = probe.fontBoundingBoxAscent
+  const fbD = probe.fontBoundingBoxDescent
+  const probeBoxH =
+    fbA + fbD > 0 ? fbA + fbD : probe.actualBoundingBoxAscent + probe.actualBoundingBoxDescent || PROBE_PX
+  const fontPx = (targetHeight * INK_FILTER * PROBE_PX) / probeBoxH
 
   ctx.font = fontShorthand(def, weight, fontPx)
   const m = ctx.measureText(text || ' ')
-  const width = m.actualBoundingBoxLeft + m.actualBoundingBoxRight
-  const height = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent
-  return { fontPx, width, height, ascent: m.actualBoundingBoxAscent, left: m.actualBoundingBoxLeft }
+  const fontBox = m.fontBoundingBoxAscent + m.fontBoundingBoxDescent
+  return {
+    fontPx,
+    width: m.width,
+    height: m.actualBoundingBoxAscent + m.actualBoundingBoxDescent,
+    boxH: fontBox > 0 ? fontBox : probeBoxH * (fontPx / PROBE_PX),
+    ascent: m.fontBoundingBoxAscent > 0 ? m.fontBoundingBoxAscent : fontBox * 0.8
+  }
 }
 
 /**
- * 绘制一行墨迹对齐文本。
- * @param x 锚点（align=left 时为墨迹左缘；right 为墨迹右缘；center 为墨迹中线）
- * @param yTop 墨迹顶部 y
- * @returns 墨迹宽
+ * 绘制一行文本（行盒语义）。
+ * @param x 锚点（align=left 时为行盒左缘；right 为右缘；center 为中线）
+ * @param yTop 行盒顶部 y —— 字体行盒在 [yTop, yTop+targetHeight] 内垂直居中落基线，
+ *             同行跨栏基线严格一致（真正的"行对齐"，不随单行墨迹漂移）
+ * @returns 文本推进宽
  */
 export function drawInkText(
   ctx: Ctx2D,
@@ -133,19 +149,19 @@ export function drawInkText(
   const m = measureInk(ctx, text, style.family, style.weight, targetHeight)
 
   let originX: number
-  if (align === 'left') originX = x + m.left
-  else if (align === 'right') originX = x + m.left - m.width
-  else originX = x + m.left - m.width / 2
+  if (align === 'left') originX = x
+  else if (align === 'right') originX = x - m.width
+  else originX = x - m.width / 2
 
   ctx.font = fontShorthand(def, style.weight, m.fontPx)
   ctx.fillStyle = style.color
   ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
-  ctx.fillText(text, originX, yTop + m.ascent)
+  ctx.fillText(text, originX, yTop + (targetHeight - m.boxH) / 2 + m.ascent)
   return m.width
 }
 
-/** 混排绘制（等高行内多段异色，用于尼康 Z 红字）：段间以字符串拼接测量 */
+/** 混排绘制（等高行内多段异色，用于尼康 Z 红字）：同 fontPx 下逐段测宽推进 */
 export function drawInkSegments(
   ctx: Ctx2D,
   segments: Array<{ text: string; color: string }>,

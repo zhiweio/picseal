@@ -167,8 +167,12 @@ function computeGeometry(photo: ImageBitmap, template: WatermarkTemplate): Rende
 
   if (template.layout === 'card') {
     if (canvas.mount === 'blur') {
-      // 雾面卡片：裁切 135%（含文字列），画幅跟随原图
-      return { width: pW * 1.35, height: pH * 1.35, photoRect: { x: 0, y: 0, w: pW, h: pH } }
+      // 雾面卡片：裁切 135%（含文字列），画幅跟随原图；显式比例时居中补边
+      return extendToAspect(
+        { width: pW * 1.35, height: pH * 1.35, photoRect: { x: 0, y: 0, w: pW, h: pH } },
+        aspect,
+        canvas.mountColor
+      )
     }
     const m = pW * canvas.margin
     const bannerH = pH * template.banner.heightRatio * template.typography.scale
@@ -272,12 +276,13 @@ function drawPhotoRounded(
   ctx.restore()
 }
 
+/** 横幅条带：紧贴照片下方；高度唯一来源（含 typography.scale） */
 function bannerStripRect(g: RenderedGeometry, t: WatermarkTemplate) {
   return {
     x: g.photoRect.x,
     y: g.photoRect.y + g.photoRect.h,
     w: g.photoRect.w,
-    h: g.photoRect.h * t.banner.heightRatio * 1.4
+    h: g.photoRect.h * t.banner.heightRatio * t.typography.scale
   }
 }
 
@@ -297,12 +302,10 @@ function drawFlatWithBanner(
     drawBannerStrip(
       ctx,
       bannerStripRect(g, t),
-      g.photoRect.h,
       lines.banner,
       {
         banner: t.banner,
         family: typography.family,
-        typographyScale: typography.scale,
         mainWeight: typography.mainWeight,
         subWeight: typography.subWeight,
         logo
@@ -327,12 +330,10 @@ function drawMountedCard(
     drawBannerStrip(
       ctx,
       bannerStripRect(g, t),
-      g.photoRect.h,
       lines.banner,
       {
         banner: t.banner,
         family: typography.family,
-        typographyScale: typography.scale,
         mainWeight: typography.mainWeight,
         subWeight: typography.subWeight,
         logo,
@@ -346,6 +347,8 @@ function drawMountedCard(
  * 雾面卡片 —— blur.json 管线的 Canvas 移植：
  * 清晰照片（圆角+投影）居中，机型/参数文字在其下方，
  * 整体叠于 2× 放大的模糊背景上，画布即 135% 裁切结果。
+ * computeFrostedLayout 契约：入参为未缩放照片像素，绘制时统一乘 s（仅一次）；
+ * 画幅被 extendToAspect 扩展时，135% 构图在最终画布内整体居中。
  */
 function drawFrostedCard(
   ctx: Ctx2D,
@@ -358,15 +361,21 @@ function drawFrostedCard(
 ): void {
   const model = lines.centerTitle || lines.centerCaption
   const params = lines.centerCaption !== model ? lines.centerCaption : ''
-  const layout = computeFrostedLayout(g.photoRect.w, g.photoRect.h, !!model, !!params, {
+  const layout = computeFrostedLayout(photo.width, photo.height, !!model, !!params, {
     radiusRatio: t.canvas.cornerRadius > 0 ? t.canvas.cornerRadius : 0.02
   })
 
   const S = (v: number) => v * s
+  // 135% 构图在最终画布中的居中偏移（比例扩展产生的补边由底色填充）
+  const dx = (g.width - layout.out.w * s) / 2
+  const dy = (g.height - layout.out.h * s) / 2
+
+  fillBackdrop(ctx, g, t.canvas.mountColor)
 
   // 1. 背景：2× 放大的模糊原图（ctx.filter 不可用时降采样回退）
   ctx.save()
-  const blurPx = g.photoRect.h * s * 0.05
+  ctx.translate(dx, dy)
+  const blurPx = Math.max(2, g.photoRect.h * 0.05)
   if (supportsFilter(ctx)) {
     ctx.filter = `blur(${blurPx}px)`
     ctx.drawImage(
@@ -388,14 +397,14 @@ function drawFrostedCard(
 
   // 2. 清晰照片：圆角 + 投影，居中
   const photoRect = {
-    x: S(layout.photo.x),
-    y: S(layout.photo.y),
+    x: dx + S(layout.photo.x),
+    y: dy + S(layout.photo.y),
     w: S(layout.photo.w),
     h: S(layout.photo.h)
   }
   ctx.save()
   ctx.shadowColor = 'rgba(0,0,0,0.45)'
-  ctx.shadowBlur = g.photoRect.h * s * 0.02
+  ctx.shadowBlur = Math.max(2, g.photoRect.h * 0.02)
   ctx.fillStyle = '#000'
   roundedRectPath(ctx, photoRect.x, photoRect.y, photoRect.w, photoRect.h, S(layout.radius))
   ctx.fill()
@@ -409,8 +418,8 @@ function drawFrostedCard(
   drawCenterStack(
     ctx,
     g.width / 2,
-    S(layout.modelY),
-    S(layout.paramsY),
+    dy + S(layout.modelY),
+    dy + S(layout.paramsY),
     model,
     params,
     {

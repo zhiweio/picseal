@@ -5,7 +5,6 @@ import {
   drawInkText,
   markSegments,
   roundedRectPath,
-  measureInk,
   type Ctx2D
 } from './canvas-utils'
 
@@ -45,10 +44,9 @@ export function drawCorner(
   lines.forEach((text, i) => {
     const weight = i === 0 ? mainWeight : subWeight
     const color = i === 0 ? corner.color : corner.subColor
-    // 底线锚定：最末行墨迹底 = height − insetY，向上逐行排
+    // 底线锚定：最末行行盒底 = height − insetY，向上逐行排
     const lineBottom = height - insetY - (lines.length - 1 - i) * lineGap
-    const m = measureInk(ctx, text, family, weight, size)
-    drawInkText(ctx, text, anchorX, lineBottom - m.height, size, { family, weight, color }, align)
+    drawInkText(ctx, text, anchorX, lineBottom - size, size, { family, weight, color }, align)
   })
 
   ctx.shadowColor = 'transparent'

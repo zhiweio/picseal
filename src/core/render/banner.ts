@@ -12,7 +12,6 @@ export interface BannerLines {
 export interface BannerSpec {
   banner: BannerStyle
   family: FontFamilyId
-  typographyScale: number
   mainWeight: number
   subWeight: number
   logo: ImageBitmap | null
@@ -30,6 +29,8 @@ export interface BannerBox {
 export interface BannerLayout {
   bannerH: number
   slotH: number
+  /** 超宽收缩后的实际行盒高（≤ slotH；1 表示未收缩） */
+  lineH: number
   elemH: number
   elemMargin: number
   lt: BannerBox
@@ -50,72 +51,94 @@ export type MeasureFn = (input: MeasureInput) => number
 
 /**
  * semi-utils WatermarkFilter 的排版公式移植（filters.py L251-360）。
- * 全部坐标为墨迹盒（ink box）语义：{x, y} 是墨迹左上角。
+ * 全部坐标为行盒（line box）语义：{x, y} 是行盒左上角。
  *
- * - bannerH = photoH × heightRatio（bottom_margin = 12% 图高）
- * - 槽位墨迹高 = bannerH × 0.30；middle = bannerH × 0.05；common = strip.w × 0.02
- * - 文本块在 margin 区内垂直居中（elem_margin）
- * - 上行底线对齐（rt 底 = lt 底）、下行底线对齐（rb 底 = lb 底）
+ * - bannerH = strip.h（条带高度已含 typography.scale，唯一来源，杜绝单位错位）
+ * - 槽位行盒高 = bannerH × 0.30；middle = bannerH × 0.05；common = strip.w × 0.02
+ * - 文本块在条带内垂直居中（elem_margin）
+ * - 上行同行盒顶对齐、下行同行盒顶对齐（同 fontPx ⇒ 基线对齐）
  * - rightAlign near：rt.x = rb.x = min(两行右对齐 x)，右栏成块贴分隔线
- * - logo 高 = elemH（宽按比例，宽 logo 钳制不超过 strip 宽 1/4）、位于分隔线左侧
- * - 分隔线高 = elemH × 1.1、宽 = max(1.2, strip.w × 0.003)、y = footer + elemMargin − elemH × 0.05
+ * - 左/右 logo、分隔线不参与收缩；文本行超宽时按比例收缩行盒（下限 0.5×）
  */
 export function computeBannerLayout(
   strip: { x: number; y: number; w: number; h: number },
-  photoH: number,
   lines: BannerLines,
-  spec: Pick<BannerSpec, 'banner' | 'typographyScale' | 'mainWeight' | 'subWeight' | 'logo'>,
+  spec: Pick<BannerSpec, 'banner' | 'mainWeight' | 'subWeight' | 'logo'>,
   measure: MeasureFn
 ): BannerLayout {
   const { banner } = spec
-  const bannerH = photoH * banner.heightRatio * spec.typographyScale
+  const bannerH = strip.h
   const slotH = bannerH * 0.3
   const middle = bannerH * 0.05
   const common = strip.w * 0.02
 
-  const wLT = lines.leftTop ? measure({ text: lines.leftTop, weight: spec.mainWeight, slotH }) : 0
-  const wLB = lines.leftBottom ? measure({ text: lines.leftBottom, weight: spec.subWeight, slotH }) : 0
-  const wRT = lines.rightTop ? measure({ text: lines.rightTop, weight: spec.mainWeight, slotH }) : 0
-  const wRB = lines.rightBottom ? measure({ text: lines.rightBottom, weight: spec.subWeight, slotH }) : 0
+  const leftLogo = spec.logo && banner.logo.position === 'left'
+    ? leftLogoBox(spec.logo, bannerH, strip.w)
+    : null
+  const leftLogoW = leftLogo?.w ?? 0
+  const rightLogo = spec.logo && banner.logo.position === 'right'
+    ? rightLogoBox(spec.logo, slotH, strip.w)
+    : null
+  const delimW = banner.divider ? Math.max(1.2, strip.w * 0.003) : 0
 
-  const ltH = lines.leftTop ? slotH : slotH
-  const lbH = slotH
-  const rtH = slotH
-  const rbH = slotH
+  const measureAll = (h: number) => ({
+    wLT: lines.leftTop ? measure({ text: lines.leftTop, weight: spec.mainWeight, slotH: h }) : 0,
+    wLB: lines.leftBottom ? measure({ text: lines.leftBottom, weight: spec.subWeight, slotH: h }) : 0,
+    wRT: lines.rightTop ? measure({ text: lines.rightTop, weight: spec.mainWeight, slotH: h }) : 0,
+    wRB: lines.rightBottom ? measure({ text: lines.rightBottom, weight: spec.subWeight, slotH: h }) : 0
+  })
 
-  const elemH = Math.max(ltH + lbH, rtH + rbH) + middle
+  // 固定占宽（logo/分隔线/间距），超宽时只收缩文本
+  const leftFixed = leftLogoW + (leftLogoW > 0 ? common : 0)
+  const rightFixed =
+    (banner.logo.position === 'right' && spec.logo
+      ? rightLogo!.w + (banner.divider ? 1 : 0) * delimW + 3 * common
+      : banner.divider
+        ? delimW + 2 * common
+        : common)
+  const available = Math.max(0, strip.w - leftFixed - rightFixed)
+
+  const first = measureAll(slotH)
+  const textNeeded = Math.max(first.wLT, first.wLB) + Math.max(first.wRT, first.wRB)
+  const shrink = textNeeded > available
+    ? Math.max(0.5, available / textNeeded)
+    : 1
+  const lineH = slotH * shrink
+  const w = shrink < 1 ? measureAll(lineH) : first
+
+  const elemH = slotH * 2 + middle
   const elemMargin = (bannerH - elemH) / 2
-  const footerY = strip.y + (strip.h - bannerH) / 2 + elemMargin
+  // 文本块顶（y 向下坐标：上行在上、下行在下）
+  const footerY = strip.y + elemMargin
+  // 收缩后行盒在各自槽位内垂直居中
+  const topY = footerY + (slotH - lineH) / 2
+  const bottomY = footerY + slotH + middle + (slotH - lineH) / 2
 
   // 左栏（logo 在左时右移一个 logo 位）
-  const leftLogoW =
-    spec.logo && banner.logo.position === 'left' ? leftLogoBox(spec.logo, bannerH, strip.w).w : 0
   const leftX = strip.x + leftLogoW + common
+  const lt: BannerBox = { x: leftX, y: topY, w: w.wLT, h: lineH }
+  const lb: BannerBox = { x: leftX, y: bottomY, w: w.wLB, h: lineH }
 
-  const lt: BannerBox = { x: leftX, y: footerY + lbH + middle, w: wLT, h: ltH }
-  const lb: BannerBox = { x: leftX, y: footerY, w: wLB, h: lbH }
-
-  // 右栏
+  // 右栏：上/下行分别与左栏行盒顶对齐（同 fontPx ⇒ 等价底线对齐）
   const rightEnd = strip.x + strip.w
-  const rtFarX = rightEnd - wRT - common
-  const rbFarX = rightEnd - wRB - common
+  const rtFarX = rightEnd - w.wRT - common
+  const rbFarX = rightEnd - w.wRB - common
   const nearX = Math.min(rtFarX, rbFarX)
   const rt: BannerBox = {
     x: banner.rightAlign === 'near' ? nearX : rtFarX,
-    y: lt.y + ltH - rtH,
-    w: wRT,
-    h: rtH
+    y: topY,
+    w: w.wRT,
+    h: lineH
   }
   const rb: BannerBox = {
     x: banner.rightAlign === 'near' ? nearX : rbFarX,
-    y: lb.y + lbH - rbH,
-    w: wRB,
-    h: rbH
+    y: bottomY,
+    w: w.wRB,
+    h: lineH
   }
 
   // 分隔线 + logo（semi-utils：logo 在分隔线左侧）
-  const maxRightW = Math.max(wRT, wRB)
-  const delimW = banner.divider ? Math.max(1.2, strip.w * 0.003) : 0
+  const maxRightW = Math.max(w.wRT, w.wRB)
   let divider: BannerBox | null = null
   let logo: BannerBox | null = null
 
@@ -124,19 +147,22 @@ export function computeBannerLayout(
     if (banner.divider && delimW > 0) {
       divider = { x: delimX, y: footerY - elemH * 0.05, w: delimW, h: elemH * 1.1 }
     }
-    if (spec.logo) {
-      const box = rightLogoBox(spec.logo, elemH, strip.w)
-      logo = { x: delimX - common - box.w, y: footerY + (elemH - box.h) / 2, w: box.w, h: box.h }
+    if (rightLogo) {
+      logo = {
+        x: delimX - common - rightLogo.w,
+        y: footerY + (elemH - rightLogo.h) / 2,
+        w: rightLogo.w,
+        h: rightLogo.h
+      }
     }
-  } else if (spec.logo) {
-    const box = leftLogoBox(spec.logo, bannerH, strip.w)
-    logo = { x: strip.x, y: footerY + (bannerH - box.h) / 2, w: box.w, h: box.h }
+  } else if (leftLogo) {
+    logo = { x: strip.x, y: footerY + (bannerH - leftLogo.h) / 2, w: leftLogo.w, h: leftLogo.h }
     if (banner.divider && delimW > 0) {
-      divider = { x: strip.x + box.w + common, y: footerY - elemH * 0.05, w: delimW, h: elemH * 1.1 }
+      divider = { x: strip.x + leftLogo.w + common, y: footerY - elemH * 0.05, w: delimW, h: elemH * 1.1 }
     }
   }
 
-  return { bannerH, slotH, elemH, elemMargin, lt, lb, rt, rb, logo, divider }
+  return { bannerH, slotH, lineH, elemH, elemMargin, lt, lb, rt, rb, logo, divider }
 }
 
 /** 右置 logo：高 = elemH，宽按比例，宽 logo 钳制不超过 strip 宽 1/4 */
@@ -165,11 +191,10 @@ function leftLogoBox(logo: ImageBitmap, bannerH: number, stripW: number): Banner
   return { x: 0, y: 0, w, h }
 }
 
-/** 绘制横幅：按 computeBannerLayout 的墨迹盒落位 */
+/** 绘制横幅：按 computeBannerLayout 的行盒落位 */
 export function drawBannerStrip(
   ctx: Ctx2D,
   strip: { x: number; y: number; w: number; h: number },
-  photoH: number,
   lines: BannerLines,
   spec: BannerSpec
 ): void {
@@ -180,7 +205,7 @@ export function drawBannerStrip(
     ctx.fillRect(strip.x, strip.y, strip.w, strip.h)
   }
 
-  const layout = computeBannerLayout(strip, photoH, lines, spec, ({ text, weight, slotH }) =>
+  const layout = computeBannerLayout(strip, lines, spec, ({ text, weight, slotH }) =>
     measureInk(ctx, text, spec.family, weight, slotH).width
   )
 
