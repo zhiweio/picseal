@@ -1,41 +1,35 @@
-FROM node:22 AS build
+# PICSEAL — 影像档案终端
+# 多阶段构建：Next.js standalone 产物 + 精简 runner
+# 本地一键启用：docker run -p 3000:3000 zhiweio/picseal
 
-RUN useradd -m picseal
-
-USER picseal
-
-ENV HOME=/home/picseal
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-ENV PATH="$HOME/.cargo/bin:$PATH"
-
-RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- -y
-
+FROM node:22-alpine AS deps
 WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
+FROM node:22-alpine AS builder
+WORKDIR /app
+RUN corepack enable
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm build
 
-USER root
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
 
-RUN chown -R picseal:picseal /app && \
-    chmod -R 755 /app
+RUN addgroup -S picseal && adduser -S picseal -G picseal
 
-ENV NPM_VERSION=10.9.1
-RUN npm cache clean --force && \
-    npm install -g npm@"${NPM_VERSION}"
-
-RUN npm install && \
-    npm run build
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=picseal:picseal /app/.next/standalone ./
+COPY --from=builder --chown=picseal:picseal /app/.next/static ./.next/static
 
 USER picseal
+EXPOSE 3000
 
-FROM nginx:alpine AS production
-
-COPY --from=build /app/dist /usr/share/nginx/html
-
-COPY ./nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server.js"]

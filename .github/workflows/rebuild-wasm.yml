@@ -1,0 +1,39 @@
+name: Rebuild EXIF WASM
+
+# rust/ 变更时重建预构建 WASM 产物并提交 —— 应用构建永不依赖 Rust 工具链
+on:
+  workflow_dispatch:
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Build wasm artifact
+        run: |
+          cd rust/exif-writer
+          wasm-pack build --target web --out-dir ../../src/wasm/exif --scope picseal
+          rm -f ../../src/wasm/exif/.gitignore ../../src/wasm/exif/package.json
+
+      - name: Commit artifact
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/wasm/exif
+          if git diff --cached --quiet; then
+            echo "artifact unchanged"
+          else
+            git commit -m "build: refresh exif wasm artifact"
+            git push
+          fi

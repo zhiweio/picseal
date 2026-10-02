@@ -1,34 +1,39 @@
-# Logs
+# dependencies
+node_modules
+
+# next.js
+.next
+out
+next-env.d.ts
+
+# production
+dist
+*.local
+
+# logs
 logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# rust build (产物提交，构建中间物忽略)
+rust/target
+rust/exif-writer/pkg
 
-package-lock.json
-pnpm-lock.yaml
-
-# Editor directories and files
+# editor
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?
 
-# WASM build output
-src/wasm/
-src-wasm/target/
-
+# misc
+.vercel
 stats.html
+.codegraph
+.zcode
+
+# tsbuildinfo
+tsconfig.tsbuildinfo
+*.tsbuildinfo

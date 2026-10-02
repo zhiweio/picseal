@@ -1,0 +1,7 @@
+services:
+  picseal:
+    image: zhiweio/picseal:latest
+    container_name: picseal
+    ports:
+      - '3000:3000'
+    restart: unless-stopped

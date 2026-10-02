@@ -1,0 +1,9 @@
+# Cargo 构建产物（workspace 根与各 crate 的 target/ 一律不入库）
+/target/
+target/
+
+# wasm-pack 输出（预构建 .wasm 统一发布到 src/wasm/exif/，中间物不入库）
+pkg/
+
+# 调试备份 / rustc 崩溃残留
+**/*.rs.bk

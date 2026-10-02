@@ -1,0 +1,171 @@
+{
+  "brand": {
+    "name": "PICSEAL",
+    "tagline": "影像档案终端",
+    "taglineEn": "PHOTO ARCHIVE"
+  },
+  "nav": {
+    "studio": "工作台",
+    "about": "关于",
+    "github": "源代码",
+    "theme": "主题",
+    "language": "语言"
+  },
+  "landing": {
+    "entry": "打开工作台",
+    "openFrame": "查看档案",
+    "heroTitle": "你的照片，配上它的出处",
+    "heroSub": "相机品牌风格信息水印，在浏览器本地生成。照片不上传，批量处理，EXIF 完整保留。",
+    "browsableHint": "滚动巡览档案墙，点击查看单帧",
+    "templatesTitle": "输出模板",
+    "templatesSub": "八种排印布局，覆盖主流相机厂商水印美学",
+    "localTitle": "本地处理",
+    "localDesc": "解码、合成、导出全部在你的浏览器完成，照片不经过任何服务器。",
+    "batchTitle": "批量生产",
+    "batchDesc": "单张调样，锁定配置，整卷照片一键产出，打包下载。",
+    "exifTitle": "元数据保留",
+    "exifDesc": "导出时把原始 EXIF 写回 JPEG、PNG、WebP，出处不失真。",
+    "startCta": "拖入照片开始",
+    "footerRepo": "开源代码",
+    "footerDeploy": "自托管",
+    "skipIntro": "跳过"
+  },
+  "studio": {
+    "title": "工作台",
+    "import": {
+      "drop": "拖入照片",
+      "dropOr": "拖拽、粘贴或点击选择 —— 支持 JPG / PNG / WebP / ZIP 压缩包",
+      "chooseFiles": "选择照片",
+      "chooseFolder": "选择文件夹",
+      "chooseZip": "选择压缩包",
+      "parsed": "已解析 {count} 张",
+      "parsing": "正在解析压缩包…",
+      "zipTooLarge": "压缩包超过 2 GB，建议分批导入",
+      "unsupported": "{name} 不是支持的图片格式",
+      "empty": "还没有照片"
+    },
+    "frame": {
+      "counter": "FRAME",
+      "sample": "样片",
+      "prev": "上一张",
+      "next": "下一张",
+      "noExif": "此照片没有可读取的拍摄信息"
+    },
+    "template": {
+      "label": "输出模板",
+      "labelEn": "OUTPUT PRESET"
+    },
+    "fields": {
+      "label": "字段",
+      "labelEn": "FIELDS",
+      "model": "机型",
+      "lens": "镜头",
+      "params": "参数",
+      "datetime": "时间",
+      "gps": "位置",
+      "logo": "标识",
+      "custom": "自定义文字",
+      "show": "显示"
+    },
+    "appearance": {
+      "label": "样式",
+      "labelEn": "APPEARANCE",
+      "scale": "缩放",
+      "cornerRadius": "圆角",
+      "shadow": "投影",
+      "margin": "边距",
+      "canvasColor": "底色",
+      "aspectRatio": "画幅",
+      "aspectOriginal": "原始"
+    },
+    "export": {
+      "label": "输出",
+      "labelEn": "DELIVERY",
+      "format": "格式",
+      "quality": "质量",
+      "longEdge": "长边",
+      "longEdgeOriginal": "原图",
+      "keepExif": "保留拍摄信息（EXIF）",
+      "keepExifHint": "写入原始 EXIF 到导出文件",
+      "naming": "文件名",
+      "namingOriginal": "原名",
+      "namingDate": "拍摄时间",
+      "namingIndex": "序号",
+      "downloadThis": "下载当前",
+      "batchRun": "以此配置处理全部 {count} 张",
+      "batchSelected": "处理选中的 {count} 张"
+    },
+    "preset": {
+      "label": "预设",
+      "labelEn": "PRESET",
+      "save": "保存预设",
+      "namePlaceholder": "预设名称",
+      "confirm": "保存",
+      "cancel": "取消",
+      "saved": "已保存「{name}」",
+      "import": "导入",
+      "export": "导出",
+      "builtin": "内置",
+      "custom": "自定义",
+      "delete": "删除",
+      "deleted": "已删除"
+    },
+    "queue": {
+      "label": "批次",
+      "labelEn": "BATCH",
+      "confirmTitle": "开始批量处理",
+      "scopeAll": "全部 {count} 张",
+      "scopeSelected": "选中的 {count} 张",
+      "scopePending": "未处理的 {count} 张",
+      "start": "开始处理",
+      "running": "处理中",
+      "frame": "帧",
+      "done": "完成 {done} · 失败 {failed}",
+      "pause": "暂停",
+      "resume": "继续",
+      "cancel": "取消",
+      "cancelled": "已取消",
+      "retry": "重试失败项",
+      "retryOne": "重试",
+      "downloadZip": "打包下载 ZIP",
+      "downloading": "正在打包…",
+      "close": "关闭",
+      "eta": "剩余约 {time}",
+      "failedReason": "失败：{reason}",
+      "viewResult": "查看结果",
+      "backToEdit": "返回调整"
+    },
+    "compare": {
+      "label": "对比",
+      "before": "原图",
+      "after": "输出",
+      "zoomIn": "放大",
+      "zoomOut": "缩小",
+      "fit": "适应窗口",
+      "actual": "实际大小"
+    },
+    "theme": {
+      "night": "夜",
+      "day": "昼"
+    }
+  },
+  "templates": {
+    "mi-classic": { "name": "经典横幅", "nameEn": "CLASSIC BANNER" },
+    "banner-pro": { "name": "标准横幅", "nameEn": "STANDARD BANNER" },
+    "card-shadow": { "name": "装裱卡片", "nameEn": "MOUNTED CARD" },
+    "card-blur": { "name": "雾面卡片", "nameEn": "FROSTED CARD" },
+    "nikon-z": { "name": "Z 字红标", "nameEn": "Z MARK" },
+    "corner-minimal": { "name": "角标参数", "nameEn": "CORNER DATA" },
+    "caption": { "name": "图注", "nameEn": "CAPTION" },
+    "center-logo": { "name": "居中标识", "nameEn": "CENTER MARK" }
+  },
+  "common": {
+    "close": "关闭",
+    "confirm": "确认",
+    "delete": "删除",
+    "loading": "加载中",
+    "error": "出错了",
+    "unknown": "未知",
+    "notRecorded": "未记录"
+  }
+}

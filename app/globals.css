@@ -1,0 +1,260 @@
+@import 'tailwindcss';
+
+/* ─────────────────────────────────────────────────────────────
+   PICSEAL design system — RhineLab terminal lineage
+   直角 / 1px 规则线 / 双语微标签 / 无彩界面，照片是唯一的颜色
+   ───────────────────────────────────────────────────────────── */
+
+/* MiSans — 与水印产物同源的界面字体 */
+@font-face {
+  font-family: 'MiSans';
+  src: url('/fonts/MiSans-Light-latin.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'MiSans';
+  src: url('/fonts/MiSans-Regular-latin.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'MiSans';
+  src: url('/fonts/MiSans-Demibold-latin.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'MiSans';
+  src: url('/fonts/MiSans-Bold-latin.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 注册为 <color> 使主题切换时变量本身可插值（RhineLab 方案） */
+@property --page {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #08121f;
+}
+@property --surface {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #162234;
+}
+@property --panel {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(17, 27, 42, 0.97);
+}
+@property --ink {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #e9eef2;
+}
+@property --muted {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #9caabd;
+}
+@property --line {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(208, 226, 243, 0.2);
+}
+@property --accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #d9ad7d;
+}
+@property --veil {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(10, 21, 37, 0.75);
+}
+@property --ok {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #8c9b7b;
+}
+
+:root,
+[data-theme='night'] {
+  --page: #08121f;
+  --surface: #162234;
+  --panel: rgba(17, 27, 42, 0.97);
+  --ink: #e9eef2;
+  --muted: #9caabd;
+  --line: rgba(208, 226, 243, 0.2);
+  --accent: #d9ad7d;
+  --veil: rgba(10, 21, 37, 0.75);
+  --ok: #8c9b7b;
+  --stage: #0b1728;
+  --shadow-pop: 0 24px 90px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+[data-theme='day'] {
+  --page: #e8e5e1;
+  --surface: #efede7;
+  --panel: rgba(245, 244, 239, 0.97);
+  --ink: #232722;
+  --muted: #74786f;
+  --line: rgba(42, 49, 42, 0.18);
+  --accent: #b56834;
+  --veil: rgba(236, 233, 225, 0.72);
+  --ok: #6d7f5c;
+  --stage: #ddd9d3;
+  --shadow-pop: 0 24px 90px rgba(35, 39, 34, 0.18);
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-veil: var(--veil);
+  --color-ok: var(--ok);
+  --color-stage: var(--stage);
+
+  --font-sans: 'MiSans', -apple-system, 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei',
+    system-ui, sans-serif;
+
+  --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-theme: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 主题切换时对变量插值 —— 由 ThemeToggle 短暂挂载 */
+.theme-anim,
+.theme-anim * {
+  transition:
+    --page 650ms var(--ease-theme),
+    --surface 650ms var(--ease-theme),
+    --panel 650ms var(--ease-theme),
+    --ink 650ms var(--ease-theme),
+    --muted 650ms var(--ease-theme),
+    --line 650ms var(--ease-theme),
+    --accent 650ms var(--ease-theme),
+    --veil 650ms var(--ease-theme),
+    --ok 650ms var(--ease-theme) !important;
+}
+
+@layer base {
+  html {
+    height: 100%;
+  }
+
+  body {
+    height: 100%;
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--page);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
+  }
+}
+
+@layer components {
+  /* 粗主规则线：区块标题下的识别性元素 */
+  .rule-heavy {
+    border-bottom: 1px solid var(--ink);
+  }
+
+  /* 双语微标签：7-12px 高字距辅助层 */
+  .hud-label {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+    font-weight: 400;
+  }
+
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border: 1px solid var(--line);
+    font-size: 10px;
+    line-height: 1;
+    color: var(--muted);
+    font-family: var(--font-sans);
+  }
+
+  /* 终端状态灯 */
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex: none;
+  }
+  .status-dot[data-state='ok'] {
+    background: var(--ok);
+  }
+  .status-dot[data-state='work'] {
+    background: var(--accent);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .status-dot[data-state='fail'] {
+    background: #c25b4e;
+  }
+
+  @keyframes pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

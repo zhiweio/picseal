@@ -1,37 +1,5 @@
 {
-  "installCommand": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source $HOME/.cargo/env && curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- -y && npm install",
-  "buildCommand": "source $HOME/.cargo/env && npm run build",
-  "git": {
-    "deploymentEnabled": {
-      "feature/update": false,
-      "gh-pages": false
-    }
-  },
-  "github": {
-    "autoJobCancelation": false
-  },
-  "headers": [
-    {
-      "source": "/sw.js",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        }
-      ]
-    },
-    {
-      "source": "(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, s-maxage=31536000, max-age=31536000"
-        },
-        {
-          "key": "Vercel-CDN-Cache-Control",
-          "value": "max-age=31536000"
-        }
-      ]
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["hkg1"]
 }

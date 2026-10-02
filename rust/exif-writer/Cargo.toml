@@ -1,0 +1,19 @@
+[package]
+name = "picseal-exif"
+version = "1.0.0"
+edition = "2021"
+description = "PICSEAL EXIF copy writer for the browser (little_exif + wasm-bindgen)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/zhiweio/picseal"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+little_exif = "0.6.23"
+
+[profile.release]
+opt-level = "s"
+lto = true
