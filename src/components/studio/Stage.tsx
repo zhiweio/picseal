@@ -16,7 +16,7 @@ export function Stage() {
   const photo = items.find((p) => p.id === currentId)
   const template = useSettings((s) => s.template)
 
-  const { preview, rendering } = usePreview(photo, template)
+  const { preview, rendering, invalidate } = usePreview(photo, template)
   const [compare, setCompare] = useState(55)
   const [comparing, setComparing] = useState(false)
   const [zoom, setZoom] = useState(1)
@@ -96,6 +96,7 @@ export function Stage() {
               src={preview.url}
               alt={photo.name}
               draggable={false}
+              onError={invalidate}
               className="max-h-[calc(100vh-8rem)] max-w-[72vw] select-none object-contain shadow-[0_12px_60px_rgba(0,0,0,0.35)]"
             />
           ) : (

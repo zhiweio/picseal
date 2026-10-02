@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WatermarkTemplate } from '@/core/types'
 import type { PhotoItem } from '@/stores/photos'
+import { BlobUrlCache } from '@/lib/preview-cache'
 import { getRenderPool } from '@/workers/pool'
 
 export interface PreviewResult {
@@ -11,54 +12,35 @@ export interface PreviewResult {
   height: number
 }
 
-/** 预览结果 LRU：键 photoId+templateJson，最多 12 条 */
-const cache = new Map<string, PreviewResult>()
-const CACHE_MAX = 12
+/** 预览结果 LRU：键 photoId+templateJson，最多 12 条；URL 由缓存独占管理 */
+const cache = new BlobUrlCache<PreviewResult>({
+  max: 12,
+  getUrl: (v) => v.url
+})
 
 function cacheKey(photo: PhotoItem, template: WatermarkTemplate): string {
   return `${photo.id}|${JSON.stringify(template)}`
 }
 
-function cacheGet(key: string): PreviewResult | undefined {
-  const hit = cache.get(key)
-  if (hit) {
-    cache.delete(key)
-    cache.set(key, hit)
-  }
-  return hit
-}
-
-function cacheSet(key: string, value: PreviewResult): void {
-  cache.set(key, value)
-  if (cache.size > CACHE_MAX) {
-    const oldest = cache.keys().next().value
-    if (oldest !== undefined) {
-      const stale = cache.get(oldest)
-      if (stale) URL.revokeObjectURL(stale.url)
-      cache.delete(oldest)
-    }
-  }
-}
-
 export function clearPreviewCache(): void {
-  for (const item of cache.values()) URL.revokeObjectURL(item.url)
   cache.clear()
 }
 
 /**
  * 实时预览管线：防抖 160ms + 代际戳丢弃过期结果 + LRU 缓存。
  * 返回 null 表示首帧尚未就绪（调用方显示占位）。
+ * invalidate：图片加载失败（URL 失效）时踢出缓存并强制重渲染的自愈路径。
  */
 export function usePreview(
   photo: PhotoItem | undefined,
   template: WatermarkTemplate,
   maxLongEdge = 2200
-): { preview: PreviewResult | null; rendering: boolean } {
+): { preview: PreviewResult | null; rendering: boolean; invalidate: () => void } {
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [rendering, setRendering] = useState(false)
+  const [nonce, setNonce] = useState(0)
   const generation = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const urlRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!photo) {
@@ -68,7 +50,7 @@ export function usePreview(
     }
 
     const key = cacheKey(photo, template)
-    const cached = cacheGet(key)
+    const cached = cache.get(key)
     if (cached) {
       setPreview(cached)
       setRendering(false)
@@ -91,11 +73,8 @@ export function usePreview(
         .then((res) => {
           if (gen !== generation.current) return // 过期结果丢弃
           if (res.ok && res.kind === 'preview') {
-            if (urlRef.current) URL.revokeObjectURL(urlRef.current)
-            const url = URL.createObjectURL(res.blob)
-            urlRef.current = url
-            const value = { url, width: res.width, height: res.height }
-            cacheSet(key, value)
+            const value = { url: URL.createObjectURL(res.blob), width: res.width, height: res.height }
+            cache.set(key, value)
             setPreview(value)
           }
           if (gen === generation.current) setRendering(false)
@@ -108,13 +87,24 @@ export function usePreview(
     return () => {
       if (timer.current) clearTimeout(timer.current)
     }
-  }, [photo, template, maxLongEdge])
+  }, [photo, template, maxLongEdge, nonce])
 
-  return { preview, rendering }
+  const invalidate = useCallback(() => {
+    if (!photo) return
+    cache.delete(cacheKey(photo, template))
+    setPreview(null)
+    setNonce((n) => n + 1)
+  }, [photo, template])
+
+  return { preview, rendering, invalidate }
 }
 
-/** 模板小样（模板列表的实时缩略渲染），独立轻缓存 */
-const miniCache = new Map<string, string>()
+/** 模板小样（模板列表的实时缩略渲染），独立轻缓存；淘汰不吊销（缩略图被面板长期持有） */
+const miniCache = new BlobUrlCache<string>({
+  max: 24,
+  getUrl: (v) => v,
+  revokeOnEvict: false
+})
 
 export async function renderMiniPreview(
   photo: PhotoItem,
@@ -135,14 +125,6 @@ export async function renderMiniPreview(
     if (res.ok && res.kind === 'preview') {
       const url = URL.createObjectURL(res.blob)
       miniCache.set(key, url)
-      if (miniCache.size > 24) {
-        const oldest = miniCache.keys().next().value
-        if (oldest) {
-          const stale = miniCache.get(oldest)
-          if (stale) URL.revokeObjectURL(stale)
-          miniCache.delete(oldest)
-        }
-      }
       return url
     }
   } catch {
@@ -152,6 +134,5 @@ export async function renderMiniPreview(
 }
 
 export function clearMiniCache(): void {
-  for (const url of miniCache.values()) URL.revokeObjectURL(url)
   miniCache.clear()
 }

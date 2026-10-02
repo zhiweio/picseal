@@ -17,7 +17,7 @@ export interface ZipEntry {
 }
 
 /** fflate 流式封装：压缩块回调式输出，内存峰值 ≈ 单文件 */
-function createZipStream(onChunk: (chunk: Uint8Array) => void) {
+export function createZipStream(onChunk: (chunk: Uint8Array) => void) {
   const zip = new Zip((err, chunk, final) => {
     if (err) throw err
     if (chunk) onChunk(chunk)
