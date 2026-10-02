@@ -7,7 +7,7 @@ import * as THREE from 'three'
 import { damp, spring, type Spring } from './motion'
 
 export const PREVIEW_LIFT = 0.9
-export const INSPECTION_LIFT = 3.47
+export const INSPECTION_LIFT = 4.05
 
 /** detail 检视姿态（相对 archive）：俯仰 20°、水平偏航 8° */
 export const DETAIL_ELEVATION = THREE.MathUtils.degToRad(20)

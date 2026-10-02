@@ -18,6 +18,32 @@ export interface BeatEngineOptions {
 const BASS_BIN_COUNT = 12 // ~0-500Hz @ fftSize 1024 / 44.1kHz
 const ONSET_COOLDOWN_MS = 180
 
+/** 低频段谱通量（正增量之和） */
+export function bandFlux(prev: Uint8Array, cur: Uint8Array, bins = BASS_BIN_COUNT): number {
+  let flux = 0
+  for (let i = 1; i <= bins; i += 1) {
+    const delta = (cur[i] ?? 0) - (prev[i] ?? 0)
+    if (delta > 0) flux += delta
+  }
+  return flux
+}
+
+/** 自适应阈值 onset 判定：能量突增 + 滑动均值/方差门槛 + 低通底噪过滤 */
+export function isOnset(
+  flux: number,
+  history: number[],
+  opts: { sensitivity?: number; floor?: number } = {}
+): { onset: boolean; strength: number } {
+  if (history.length === 0) return { onset: false, strength: 0 }
+  const mean = history.reduce((a, b) => a + b, 0) / history.length
+  const variance = history.reduce((a, b) => a + (b - mean) ** 2, 0) / history.length
+  const threshold = mean + (opts.sensitivity ?? 1.6) * Math.sqrt(variance) + 4
+  if (flux > threshold && mean > (opts.floor ?? 2)) {
+    return { onset: true, strength: Math.min(1, (flux - mean) / 220) }
+  }
+  return { onset: false, strength: 0 }
+}
+
 export class BeatEngine {
   private ctx: AudioContext | null = null
   private analyser: AnalyserNode | null = null
@@ -115,20 +141,13 @@ export class BeatEngine {
     this.onLevel?.(this.level)
 
     // 谱通量 onset（低频段）：能量突增 + 自适应阈值 + 冷却窗
-    let flux = 0
-    for (let i = 1; i <= BASS_BIN_COUNT; i += 1) {
-      const delta = (this.freq[i] ?? 0) - (this.prevFreq[i] ?? 0)
-      if (delta > 0) flux += delta
-    }
+    const flux = bandFlux(this.prevFreq, this.freq)
     this.fluxHistory.push(flux)
     if (this.fluxHistory.length > 43) this.fluxHistory.shift()
-    const mean = this.fluxHistory.reduce((a, b) => a + b, 0) / this.fluxHistory.length
-    const variance = this.fluxHistory.reduce((a, b) => a + (b - mean) ** 2, 0) / this.fluxHistory.length
-    const threshold = mean + 1.6 * Math.sqrt(variance) + 4
     const now = performance.now()
-    if (flux > threshold && now - this.lastOnset > ONSET_COOLDOWN_MS && mean > 2) {
+    const { onset, strength } = isOnset(flux, this.fluxHistory)
+    if (onset && now - this.lastOnset > ONSET_COOLDOWN_MS) {
       this.lastOnset = now
-      const strength = Math.min(1, (flux - mean) / 220)
       this.onBeat?.(strength)
     }
   }

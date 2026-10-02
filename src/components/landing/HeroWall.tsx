@@ -13,10 +13,29 @@ import { matchBrand } from '@/core/brands'
 import { getRenderPool } from '@/workers/pool'
 import type { PhotoMeta } from '@/core/types'
 
-const SAMPLES = [
+/** 内置兜底样片；若 public/samples/manifest.json 存在则优先使用采集样片库 */
+const FALLBACK_SAMPLES = [
   'sony', 'canon', 'nikon', 'fujifilm', 'leica', 'xiaomi', 'apple',
   'huawei', 'panasonic', 'olympus', 'ricoh', 'dji', 'insta360'
 ] as const
+
+interface SampleEntry {
+  id: string
+  file: string
+}
+
+async function loadSampleList(): Promise<Array<{ id: string; file: string }>> {
+  try {
+      const res = await fetch('/samples/manifest.json', { cache: 'no-cache' })
+    if (res.ok) {
+      const manifest = (await res.json()) as SampleEntry[]
+      if (Array.isArray(manifest) && manifest.length >= 4) return manifest.slice(0, 48)
+    }
+  } catch {
+    /* manifest 缺失走兜底 */
+  }
+  return FALLBACK_SAMPLES.map((id) => ({ id, file: `${id}.jpg` }))
+}
 
 interface SampleFrame {
   id: string
@@ -39,28 +58,32 @@ export function HeroWall() {
   const blobCacheRef = useRef(new Map<string, Blob>())
 
   const [frames, setFrames] = useState<SampleFrame[]>([])
+  /** 全部样片加载完成（建墙/水印升级的唯一门） */
+  const [samplesReady, setSamplesReady] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
   const [musicOn, setMusicOn] = useState(false)
   const [hasUserTrack, setHasUserTrack] = useState(false)
 
-  /* ── 样片加载（原图 + EXIF） ── */
+  /* ── 样片加载（manifest 优先，原图 + EXIF） ── */
   useEffect(() => {
     let cancelled = false
     void (async () => {
+      const list = await loadSampleList()
       const loaded: SampleFrame[] = []
-      for (const id of SAMPLES) {
+      for (const entry of list) {
         try {
-          const res = await fetch(`/samples/${id}.jpg`)
+          const res = await fetch(`/samples/${entry.file}`)
           const blob = await res.blob()
           const meta = await readPhotoMeta(blob)
           if (cancelled) return
-          blobCacheRef.current.set(id, blob)
-          loaded.push({ id, blob, url: URL.createObjectURL(blob), meta })
+          blobCacheRef.current.set(entry.id, blob)
+          loaded.push({ id: entry.id, blob, url: URL.createObjectURL(blob), meta })
           setFrames([...loaded])
         } catch {
           /* 单张失败跳过 */
         }
       }
+      if (!cancelled && loaded.length > 0) setSamplesReady(true)
     })()
     return () => {
       cancelled = true
@@ -69,7 +92,7 @@ export function HeroWall() {
 
   /* ── 场景构建（全部样片就绪后一次） ── */
   useEffect(() => {
-    if (!containerRef.current || frames.length !== SAMPLES.length || sceneRef.current) return
+    if (!containerRef.current || !samplesReady || sceneRef.current) return
     const scene = new ArchiveWallScene({
       container: containerRef.current,
       items: frames.map((f) => ({
@@ -81,7 +104,7 @@ export function HeroWall() {
       })),
       reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       theme: ((document.documentElement.dataset.theme as 'night' | 'day') ?? 'night'),
-      quality: window.innerWidth < 900 || window.innerWidth * window.devicePixelRatio > 2600 ? 'performance' : 'high',
+      quality: window.innerWidth < 900 || window.innerWidth * window.devicePixelRatio > 3200 ? 'performance' : 'high',
       onSelect: (index) => {
         setSelected(index)
         if (index === null) transitionRef.current?.hide()
@@ -106,15 +129,30 @@ export function HeroWall() {
       scene.dispose()
       sceneRef.current = null
     }
-  }, [frames.length === SAMPLES.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [samplesReady]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── 主题联动：昼夜切换时同步墙面氛围 ── */
+  useEffect(() => {
+    const el = document.documentElement
+    const apply = () => {
+      const theme = (el.dataset.theme as 'night' | 'day') ?? 'night'
+      sceneRef.current?.setTheme(theme)
+    }
+    const observer = new MutationObserver(apply)
+    observer.observe(el, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
 
   /* ── 水印实渲 → 原位升级墙面纹理（产品自我演示） ── */
   useEffect(() => {
-    if (frames.length !== SAMPLES.length || !sceneRef.current) return
+    if (!samplesReady || !sceneRef.current) return
     let cancelled = false
     void (async () => {
       const pool = getRenderPool()
-      const template = BUILTIN_TEMPLATES[0]! // mi-classic
+      const template = {
+        ...BUILTIN_TEMPLATES[0]!,
+        typography: { ...BUILTIN_TEMPLATES[0]!.typography, scale: 1.35 }
+      }
       for (const [index, frame] of frames.entries()) {
         if (cancelled || !sceneRef.current) return
         try {
@@ -137,7 +175,7 @@ export function HeroWall() {
     return () => {
       cancelled = true
     }
-  }, [frames.length === SAMPLES.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [samplesReady, frames.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 背景音乐 + 节拍律动 ── */
   const startMusic = useCallback(async (): Promise<boolean> => {

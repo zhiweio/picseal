@@ -1,9 +1,10 @@
 /**
  * 影像档案墙场景 —— 交互与动效深度移植 Rhine-Music-Demo（MIT，© LBEILC / RonaldDeng）：
- * 弧形墙面 + 波场位移 + span 驱动 FOV 相机状态机 + SSAO/Bokeh/SMAA 后处理。
- * 渲染栈采用验证过的"深色相框 + 独立印刷面网格"组合（可靠性优先）。
+ * 暖调画廊 + 磨砂玻璃档案盒（transmission）+ 封面图集实例 + 横向纵深巷道 + 长焦压缩视场
+ * + 波场位移 + span 驱动 FOV 相机状态机 + SSAO/Bokeh/SMAA 后处理。
  */
 import * as THREE from 'three'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js'
@@ -11,18 +12,22 @@ import { BokehPass } from 'three/addons/postprocessing/BokehPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import {
+  archiveWave,
   damp,
   idleWave,
   nearestOccurrence,
+  returnStep,
   selectionWave,
   settlingWave,
+  smooth,
   spring,
   columnStrength,
   PlacementMotion,
   type Spring
 } from './motion'
 import { CameraMotion, Presentation, DETAIL_ELEVATION, DETAIL_YAW, INSPECTION_LIFT, PREVIEW_LIFT } from './camera'
-import { CASE, PRINT } from './materials'
+import { CASE, COVER, createCaseMaterials, createCoverMaterial, applyDayFinish, type CaseMaterials } from './materials'
+import { CoverAtlas } from './atlas'
 
 export interface WallItem {
   id: string
@@ -41,36 +46,39 @@ export interface WallSceneOptions {
   onSelect: (index: number | null) => void
 }
 
+/** 横向 9 列（可循环滚动）× 纵深 48 行（雾中渐隐）—— demo archive-loop 结构 */
 const LANES = [0, 1, 2, 3, 4, -2, -1, 5, 6]
-const POOL_ROWS = 48
-const LANE_SPACING = 4.7
-/** 纵向行距（卡高 + 间隙），行沿 y 堆叠 */
-const ROW_SPACING = CASE.height + 0.55
-/** 弧形墙：lane 离中心越远越靠后 */
-const CURVE = 1.15
-const CARD_BASE_Y = CASE.height / 2
-/** 影子承接面（常规视野外） */
-const FLOOR_Y = -14
-/** 可见印刷面网格池（lanes × 可见行 + 余量） */
-const PRINT_POOL = LANES.length * 4
+const POOL_LANES = LANES.length
+const DEPTH_ROWS = 48
+const LANE_SPACING = 5.2
+const ROW_SPACING = 0.62
+const CENTER_ROW = (DEPTH_ROWS - 1) / 2
+const CARD_Y = 1.85
+const FLOOR_Y = -4.63
 
+/** 长焦压缩视场（demo archive shot fov≈6°）：距离 66 + span 16 → fov ≈ 13.7° */
 const ARCHIVE_YAW = THREE.MathUtils.degToRad(6)
-const ARCHIVE_ELEVATION = THREE.MathUtils.degToRad(9)
-const ARCHIVE_DISTANCE = 30
-const ARCHIVE_SPAN = CASE.height * 2.9
-const DETAIL_SPAN = CASE.height * 1.5
-const DETAIL_DISTANCE = 10
-const ARCHIVE_AIM = new THREE.Vector3(0, CARD_BASE_Y + 1.1, 0)
+const ARCHIVE_ELEVATION = THREE.MathUtils.degToRad(5)
+const ARCHIVE_DISTANCE = 66
+const ARCHIVE_SPAN = 16
+const DETAIL_SPAN = 6.5
+const DETAIL_DISTANCE = 12
+const ARCHIVE_AIM = new THREE.Vector3(0, CARD_Y + 0.4, 0)
+/** 纵深窗口整体后移，避免最近行过度逼近相机 */
+const ROW_Z_OFFSET = -2.5
+
+/** 进场波窗口（秒）：archiveWave 波前扫过后淡出 */
+const BOOT_WAVE_END = 4.6
 
 interface Pulse {
-  row: number
   lane: number
+  row: number
   age: number
 }
 
 interface Cell {
-  lane: number
-  row: number
+  laneIdx: number
+  rowIdx: number
   itemIndex: number
 }
 
@@ -87,23 +95,31 @@ export class ArchiveWallScene {
   private clock = new THREE.Clock()
   private opts: WallSceneOptions
 
-  private frameMaterial: THREE.MeshStandardMaterial
-  private instances: THREE.InstancedMesh[] = []
+  private cases: CaseMaterials
+  private atlas: CoverAtlas
+  private coverMaterial: THREE.MeshLambertMaterial
+  private glassMesh: THREE.InstancedMesh
+  private coverMesh: THREE.InstancedMesh
   private cells: Cell[] = []
-  private textures: Array<THREE.Texture | null> = []
-  private printMaterials: Array<THREE.MeshLambertMaterial | null> = []
-  private printPool: Array<{ mesh: THREE.Mesh; cell: Cell | null }> = []
+  private itemUrls: string[]
+  private hemi: THREE.HemisphereLight
+  private key: THREE.DirectionalLight
+  private fill: THREE.DirectionalLight
+  private floor: THREE.Mesh
 
   private selectedGroup: THREE.Group | null = null
+  private selectedCover: THREE.Mesh | null = null
+  private heroTexture: THREE.Texture | null = null
+  private heroItem: number | null = null
 
   private shoulderTarget = 0
   private shoulder: Spring = spring(0)
-  private laneFocus = 2
   private lift: Spring = spring(0)
   private idleGain: Spring = spring(0)
+  private rotate: Spring = spring(0)
   private lastInteraction = -10
 
-  private pointer = new THREE.Vector2(-10, -10)
+  private pointer = new THREE.Vector2(0, 0)
   private raycaster = new THREE.Raycaster()
   private hoveredInstance: number | null = null
   private selectedItem: number | null = null
@@ -111,7 +127,14 @@ export class ArchiveWallScene {
   private pulses: Pulse[] = []
   private musicLevel = 0
 
+  private dragPointerId: number | null = null
+  private dragLastX = 0
+  private dragMoved = 0
+  private rotateDrag = false
+
   private frame = 0
+  private lastFrameAt = 0
+  private watchdog: number | null = null
   private disposed = false
   private listeners: Array<[HTMLElement, string, EventListenerOrEventListenerObject]> = []
   private readonly m4 = new THREE.Matrix4()
@@ -123,7 +146,12 @@ export class ArchiveWallScene {
   constructor(opts: WallSceneOptions) {
     this.opts = opts
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' })
+    this.renderer = new THREE.WebGLRenderer({
+      // 高画质路径由 SMAA 兜底抗锯齿；性能路径直接开 MSAA
+      antialias: opts.quality === 'performance',
+      alpha: false,
+      powerPreference: 'high-performance'
+    })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -134,113 +162,135 @@ export class ArchiveWallScene {
     this.renderer.domElement.style.height = '100%'
     opts.container.appendChild(this.renderer.domElement)
 
-    this.scene.background = new THREE.Color('#07111f')
-    this.scene.fog = new THREE.Fog('#07111f', 30, 60)
+    this.scene.background = new THREE.Color('#eae5e1')
+    this.scene.fog = new THREE.Fog('#eae5e1', 40, 90)
 
-    this.frameMaterial = new THREE.MeshStandardMaterial({
-      color: '#1c232e',
-      roughness: 0.42,
-      metalness: 0.35
-    })
+    // IBL：transmission 玻璃没有环境贴图就是死玻璃（demo archive-lighting 同款）
+    const pmrem = new THREE.PMREMGenerator(this.renderer)
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    pmrem.dispose()
 
-    this.buildLights()
-    this.buildFloor()
-    this.buildInstances()
-    this.buildPrintPool()
+    this.cases = createCaseMaterials()
+    this.itemUrls = opts.items.map((i) => i.url)
+
+    // 索引：列 × 深度行，物品按行主序铺满网格
+    const count = POOL_LANES * DEPTH_ROWS
+    for (let laneIdx = 0; laneIdx < POOL_LANES; laneIdx += 1) {
+      for (let rowIdx = 0; rowIdx < DEPTH_ROWS; rowIdx += 1) {
+        this.cells.push({
+          laneIdx,
+          rowIdx,
+          itemIndex: (rowIdx * POOL_LANES + laneIdx) % opts.items.length
+        })
+      }
+    }
+
+    const glassGeo = new THREE.BoxGeometry(CASE.width, CASE.height, CASE.depth)
+    this.glassMesh = new THREE.InstancedMesh(glassGeo, this.cases.frosted, count)
+    this.glassMesh.frustumCulled = false
+    this.glassMesh.castShadow = true
+    this.scene.add(this.glassMesh)
+
+    const coverGeo = new THREE.PlaneGeometry(COVER.width, COVER.height)
+    coverGeo.translate(0, 0, COVER.z)
+    const coverTiles = new Float32Array(count * 4)
+    coverGeo.setAttribute('coverTile', new THREE.InstancedBufferAttribute(coverTiles, 4))
+    this.atlas = new CoverAtlas(this.renderer.capabilities.maxTextureSize, Math.max(16, opts.items.length))
+    this.coverMaterial = createCoverMaterial(this.atlas.texture)
+    this.coverMesh = new THREE.InstancedMesh(coverGeo, this.coverMaterial, count)
+    this.coverMesh.frustumCulled = false
+    this.scene.add(this.coverMesh)
+
+    this.hemi = new THREE.HemisphereLight('#fffaf5', '#b49b80', 0.65)
+    this.scene.add(this.hemi)
+    this.key = new THREE.DirectionalLight('#fff4e5', 1.4)
+    this.key.position.set(-8, 14, 6)
+    this.key.castShadow = true
+    this.key.shadow.mapSize.set(2048, 2048)
+    this.key.shadow.camera.left = -18
+    this.key.shadow.camera.right = 18
+    this.key.shadow.camera.top = 16
+    this.key.shadow.camera.bottom = -16
+    this.key.shadow.camera.near = 0.1
+    this.key.shadow.camera.far = 60
+    this.key.shadow.normalBias = 0.035
+    this.key.shadow.bias = -0.0003
+    this.key.shadow.intensity = 0.32
+    this.scene.add(this.key)
+    this.fill = new THREE.DirectionalLight('#ffffff', 0.6)
+    this.fill.position.set(7, 8, -10)
+    this.scene.add(this.fill)
+
+    this.floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(300, 300),
+      new THREE.MeshStandardMaterial({ color: '#d8c9b9', roughness: 0.95 })
+    )
+    this.floor.rotation.x = -Math.PI / 2
+    this.floor.position.y = FLOOR_Y
+    this.floor.receiveShadow = true
+    this.scene.add(this.floor)
 
     if (opts.quality === 'high') this.buildComposer()
     this.setTheme(opts.theme)
 
     this.bind(opts.container)
     this.resize()
+    void this.fillAtlas()
     this.frame = requestAnimationFrame(this.animate)
+    // rAF 饥饿兜底：标签页被遮挡/节流时以低帧率维持场景推进（前台 rAF 正常时自动闲置）
+    this.watchdog = window.setInterval(() => {
+      if (this.disposed) return
+      if (performance.now() - this.lastFrameAt < 250) return
+      this.animate()
+    }, 1000 / 30)
   }
 
   /* ── 场景搭建 ── */
 
-  private buildLights(): void {
-    this.scene.add(new THREE.HemisphereLight('#e2eeff', '#56708c', 0.9))
-
-    const key = new THREE.DirectionalLight('#e5f0ff', 1.7)
-    key.position.set(-8, 14, 12)
-    key.castShadow = true
-    key.shadow.mapSize.set(2048, 2048)
-    key.shadow.camera.left = -20
-    key.shadow.camera.right = 20
-    key.shadow.camera.top = 20
-    key.shadow.camera.bottom = -20
-    key.shadow.camera.near = 0.1
-    key.shadow.camera.far = 60
-    key.shadow.normalBias = 0.02
-    this.scene.add(key)
-
-    const fill = new THREE.DirectionalLight('#ffffff', 0.5)
-    fill.position.set(7, 6, 14)
-    this.scene.add(fill)
-  }
-
-  private buildFloor(): void {
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(300, 300),
-      new THREE.MeshStandardMaterial({ color: '#0b1828', roughness: 0.95 })
-    )
-    floor.rotation.x = -Math.PI / 2
-    floor.position.y = FLOOR_Y
-    floor.receiveShadow = true
-    this.scene.add(floor)
-  }
-
-  /** 相框箱体：9 lanes × 48 rows 实例化 */
-  private buildInstances(): void {
-    const count = LANES.length * POOL_ROWS
-    const box = new THREE.BoxGeometry(CASE.width, CASE.height, CASE.depth)
-    for (let laneIdx = 0; laneIdx < LANES.length; laneIdx += 1) {
-      for (let rowIdx = 0; rowIdx < POOL_ROWS; rowIdx += 1) {
-        const itemIndex = (laneIdx * POOL_ROWS + rowIdx) % this.opts.items.length
-        this.cells.push({ lane: LANES[laneIdx]!, row: rowIdx, itemIndex })
+  /** 封面图集逐张填充（blob URL → ImageBitmap → contain-fit 瓦片） */
+  private async fillAtlas(): Promise<void> {
+    for (let i = 0; i < this.itemUrls.length; i += 1) {
+      if (this.disposed) return
+      try {
+        const res = await fetch(this.itemUrls[i]!)
+        const bmp = await createImageBitmap(await res.blob())
+        if (this.disposed) {
+          bmp.close()
+          return
+        }
+        this.atlas.set(i, bmp)
+        bmp.close()
+        this.syncCoverTiles()
+      } catch {
+        /* 单张失败留空瓦片（透明） */
       }
     }
-    for (let i = 0; i < 3; i += 1) {
-      const mesh = new THREE.InstancedMesh(box, this.frameMaterial, count)
-      mesh.frustumCulled = false
-      this.scene.add(mesh)
-      this.instances.push(mesh)
-    }
   }
 
-  /**
-   * 印刷面池：可见格位约 lanes×4，网格复用。
-   * 每个独立底片一个共享材质（map 指向其纹理），网格按需指派。
-   */
-  private buildPrintPool(): void {
-    this.opts.items.forEach((item, itemIndex) => {
-      const texture = new THREE.TextureLoader().load(item.url)
-      texture.colorSpace = THREE.SRGBColorSpace
-      this.textures[itemIndex] = texture
-      this.printMaterials[itemIndex] = new THREE.MeshLambertMaterial({
-        map: texture,
-        toneMapped: false
-      })
+  /** 把图集瓦片同步到全部实例的 coverTile 属性 */
+  private syncCoverTiles(): void {
+    const attr = this.coverMesh.geometry.getAttribute('coverTile') as THREE.InstancedBufferAttribute
+    const array = attr.array as Float32Array
+    this.cells.forEach((cell, i) => {
+      const tile = this.atlas.tileOf(cell.itemIndex)
+      if (!tile) return
+      array[i * 4] = tile.offsetX
+      array[i * 4 + 1] = tile.offsetY
+      array[i * 4 + 2] = tile.scaleX
+      array[i * 4 + 3] = tile.scaleY
     })
-
-    const geo = new THREE.PlaneGeometry(PRINT.width, PRINT.height)
-    for (let i = 0; i < PRINT_POOL; i += 1) {
-      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ visible: false }))
-      mesh.frustumCulled = false
-      this.scene.add(mesh)
-      this.printPool.push({ mesh, cell: null })
-    }
+    attr.needsUpdate = true
   }
 
   private buildComposer(): void {
     const composer = new EffectComposer(this.renderer)
     composer.addPass(new RenderPass(this.scene, this.camera))
     const ssao = new SSAOPass(this.scene, this.camera, 1, 1)
-    ssao.kernelRadius = 0.18
+    ssao.kernelRadius = 0.4
     ssao.minDistance = 0.001
-    ssao.maxDistance = 0.035
+    ssao.maxDistance = 0.09
     composer.addPass(ssao)
-    const bokeh = new BokehPass(this.scene, this.camera, { focus: 25, aperture: 0.0003, maxblur: 0.011 })
+    const bokeh = new BokehPass(this.scene, this.camera, { focus: 60, aperture: 0.0003, maxblur: 0.011 })
     composer.addPass(bokeh)
     composer.addPass(new SMAAPass(1, 1))
     composer.addPass(new OutputPass())
@@ -252,17 +302,25 @@ export class ArchiveWallScene {
   /* ── 主题 ── */
 
   setTheme(theme: 'night' | 'day'): void {
-    const bg = theme === 'night' ? '#07111f' : '#b9c7cc'
+    const day = theme === 'day'
+    const bg = day ? '#eae5e1' : '#241d15'
     ;(this.scene.background as THREE.Color).set(bg)
     ;(this.scene.fog as THREE.Fog).color.set(bg)
-    this.renderer.toneMappingExposure = theme === 'night' ? 1.08 : 1.0
-    const floor = this.scene.children.find(
-      (c) => c instanceof THREE.Mesh && Math.abs(c.rotation.x + Math.PI / 2) < 0.01
-    ) as THREE.Mesh | undefined
-    if (floor) {
-      ;(floor.material as THREE.MeshStandardMaterial).color.set(theme === 'night' ? '#0b1828' : '#8fa3b0')
+    this.renderer.toneMappingExposure = day ? 1.0 : 1.08
+    this.scene.environmentIntensity = day ? 0.5 : 0.68
+    this.hemi.intensity = day ? 0.65 : 0.9
+    this.key.intensity = day ? 1.4 : 1.7
+    ;(this.floor.material as THREE.MeshStandardMaterial).color.set(day ? '#d8c9b9' : '#2d2519')
+    if (day) applyDayFinish(this.cases)
+    else {
+      // 恢复夜间通用值（createCaseMaterials 的初始参数）
+      this.cases.frosted.transmission = 0.78
+      this.cases.frosted.roughness = 0.28
+      this.cases.frosted.thickness = 0.28
+      this.cases.frosted.attenuationColor.set('#d4c7b4')
+      this.cases.frosted.attenuationDistance = 1.2
+      this.cases.frosted.color.set('#fff7ed')
     }
-    this.frameMaterial.color.set(theme === 'night' ? '#1c232e' : '#d9d2c6')
   }
 
   /* ── 音频律动挂钩 ── */
@@ -274,25 +332,30 @@ export class ArchiveWallScene {
   /** 节拍 onset → 焦点列注入涟漪 + 选中卡微弹 */
   beatPulse(strength = 1): void {
     if (this.disposed) return
-    this.pulses.push({ row: this.shoulder.value, lane: this.laneFocus, age: 0 })
+    this.pulses.push({ lane: Math.round(this.shoulder.value), row: CENTER_ROW, age: 0 })
     if (this.pulses.length > 6) this.pulses.shift()
     this.lift.velocity += 0.5 * strength
   }
 
-  /** 水印实渲完成后升级某底片的印刷纹理（产品自我演示） */
+  /** 水印实渲完成后原位重绘图集瓦片（产品自我演示） */
   upgradeItem(itemIndex: number, url: string): void {
     if (this.disposed) return
-    new THREE.TextureLoader().load(url, (t) => {
-      t.colorSpace = THREE.SRGBColorSpace
-      const old = this.textures[itemIndex]
-      this.textures[itemIndex] = t
-      const material = this.printMaterials[itemIndex]
-      if (material) {
-        material.map = t
-        material.needsUpdate = true
+    this.itemUrls[itemIndex] = url
+    void (async () => {
+      try {
+        const res = await fetch(url)
+        const bmp = await createImageBitmap(await res.blob())
+        if (this.disposed) {
+          bmp.close()
+          return
+        }
+        this.atlas.set(itemIndex, bmp)
+        bmp.close()
+        this.syncCoverTiles()
+      } catch {
+        /* 升级失败保留原图 */
       }
-      old?.dispose()
-    })
+    })()
   }
 
   /* ── 交互 ── */
@@ -309,6 +372,38 @@ export class ArchiveWallScene {
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
         -((e.clientY - rect.top) / rect.height) * 2 + 1
       )
+      if (this.dragPointerId !== e.pointerId) return
+      const dx = e.clientX - this.dragLastX
+      this.dragLastX = e.clientX
+      this.dragMoved += Math.abs(dx)
+      if (this.rotateDrag) {
+        // 检视态：拖拽旋转选中卡（demo ±0.8 rad，松手指数回正）
+        this.rotate.value = THREE.MathUtils.clamp(this.rotate.value + dx * 0.004, -0.8, 0.8)
+      } else if (this.presentation.interactive && this.placement.value < 0.2) {
+        this.shoulderTarget += dx * 0.008
+        this.lastInteraction = this.clock.elapsedTime
+      }
+    })
+
+    on<PointerEvent>('pointerdown', (e) => {
+      this.dragPointerId = e.pointerId
+      this.dragLastX = e.clientX
+      this.dragMoved = 0
+      this.rotateDrag = this.presentation.state === 'presented'
+    })
+
+    on<PointerEvent>('pointerup', () => {
+      const wasClick = this.dragMoved < 6
+      const rotating = this.rotateDrag
+      this.dragPointerId = null
+      this.rotateDrag = false
+      if (!wasClick || rotating) return
+      if (this.hoveredInstance !== null && this.presentation.interactive && this.placement.value < 0.2) {
+        const cell = this.cells[this.hoveredInstance]
+        if (cell) this.select(cell.itemIndex, cell)
+        return
+      }
+      if (this.presentation.state === 'presented') this.select(null)
     })
 
     on<WheelEvent>(
@@ -319,20 +414,11 @@ export class ArchiveWallScene {
           this.select(null)
           return
         }
-        this.shoulderTarget -= e.deltaY * 0.004
+        this.shoulderTarget += e.deltaY * 0.005
         this.lastInteraction = this.clock.elapsedTime
       },
       { passive: false }
     )
-
-    on<PointerEvent>('pointerdown', () => {
-      if (this.hoveredInstance !== null && this.presentation.interactive && this.placement.value < 0.2) {
-        const cell = this.cells[this.hoveredInstance]
-        if (cell) this.select(cell.itemIndex, cell)
-        return
-      }
-      if (this.presentation.state === 'presented') this.select(null)
-    })
 
     on<KeyboardEvent>('keydown', (e) => {
       if (this.presentation.state === 'presented' && e.key === 'Escape') this.select(null)
@@ -354,7 +440,7 @@ export class ArchiveWallScene {
     const nextCell = cell ?? this.cells.find((c) => c.itemIndex === itemIndex) ?? null
     this.selectedItem = itemIndex
     this.selectedCell = nextCell
-    this.pulses.push({ row: nextCell?.row ?? 0, lane: nextCell?.lane ?? 2, age: 0 })
+    this.pulses.push({ lane: nextCell?.laneIdx ?? 4, row: nextCell?.rowIdx ?? CENTER_ROW, age: 0 })
     this.presentation.request('detail')
     this.placement.set(1, this.opts.reducedMotion)
     this.opts.onSelect(itemIndex)
@@ -364,14 +450,17 @@ export class ArchiveWallScene {
 
   private animate = (): void => {
     if (this.disposed) return
+    // 看门狗触发时先撤销挂起的 rAF，保证只有一条动画链
+    cancelAnimationFrame(this.frame)
     this.frame = requestAnimationFrame(this.animate)
+    this.lastFrameAt = performance.now()
     const dt = Math.min(this.clock.getDelta(), 0.05)
     const time = this.clock.elapsedTime
     const detail = this.placement.value
     const reduced = this.opts.reducedMotion
     const rates = reduced ? 35 : 1
 
-    damp(this.shoulder, this.shoulderTarget, reduced ? 35 : 4, dt)
+    damp(this.shoulder, this.shoulderTarget, reduced ? 35 : 3.7, dt)
     this.placement.update(dt)
 
     const liftTarget =
@@ -381,6 +470,9 @@ export class ArchiveWallScene {
           ? PREVIEW_LIFT
           : 0
     damp(this.lift, liftTarget, (this.selectedItem !== null ? 9 : 4.2) * rates, dt)
+
+    // 检视旋转：非拖拽时指数回正（demo returnStep）
+    if (!this.rotateDrag) this.rotate.value = returnStep(this.rotate.value, dt, reduced)
 
     const idleTarget = time - this.lastInteraction > 2.5 ? 1 : 0
     damp(this.idleGain, idleTarget * (1 + this.musicLevel * 1.4), reduced ? 35 : 0.8, dt)
@@ -392,10 +484,9 @@ export class ArchiveWallScene {
     const span = THREE.MathUtils.lerp(ARCHIVE_SPAN, DETAIL_SPAN, detail)
 
     let aim = ARCHIVE_AIM.clone()
-    aim.y += this.shoulder.value * ROW_SPACING * 0.92
     if (this.selectedItem !== null && this.selectedCell) {
       const pos = this.cellWorldPosition(this.selectedCell)
-      aim = new THREE.Vector3(pos.x * 0.92, pos.y + CASE.height / 2, pos.z + this.lift.value * 0.8)
+      aim = new THREE.Vector3(pos.x * 0.92, pos.y + CASE.height / 2, pos.z + this.lift.value * 0.95)
     }
 
     const dir = new THREE.Vector3(
@@ -405,17 +496,17 @@ export class ArchiveWallScene {
     )
     const cam = this.cameraMotion
     cam.position.targetPosition.copy(aim).addScaledVector(dir, distance)
-    cam.position.targetPosition.x += this.pointer.x * 0.35 * (1 - detail)
-    cam.position.targetPosition.y += this.pointer.y * 0.22 * (1 - detail)
+    cam.position.targetPosition.x += this.pointer.x * 0.5 * (1 - detail)
+    cam.position.targetPosition.y += this.pointer.y * 0.3 * (1 - detail)
     cam.aim.targetAim.copy(aim)
     cam.targetSpan = span
     cam.update(this.camera, dt, reduced ? 35 : 9)
 
-    // 雾锚定相机距离
+    // 雾锚定相机距离（demo 原式：雾始终贴着墙面）
     const renderedDistance = this.camera.position.distanceTo(cam.aim.value)
     const fog = this.scene.fog as THREE.Fog
-    fog.near = renderedDistance + (6 - 3 * detail)
-    fog.far = renderedDistance + (26 - 14 * detail)
+    fog.near = renderedDistance + THREE.MathUtils.lerp(4, -1, detail)
+    fog.far = renderedDistance + THREE.MathUtils.lerp(22, 12, detail)
 
     // Bokeh 每帧跟焦
     if (this.bokeh) {
@@ -434,44 +525,35 @@ export class ArchiveWallScene {
     for (const pulse of this.pulses) pulse.age += dt
     while (this.pulses.length > 0 && this.pulses[0]!.age > 3.2) this.pulses.shift()
 
-    // ── 相框实例（波场位移）──
+    // ── 档案盒实例（波场位移，玻璃与封面共享矩阵）──
     const idleGainValue = Math.max(0, Math.min(1.6, this.idleGain.value))
     const selectedSlot =
       this.selectedCell && this.selectedItem !== null ? this.cells.indexOf(this.selectedCell) : -1
-    const shoulderRow = Math.round(this.shoulder.value)
+    const bootWave = (1 - smooth((time - BOOT_WAVE_END + 1.5) / 1.5)) * smooth((time - 0.15) / 0.4)
 
     this.cells.forEach((cell, i) => {
-      const rowDelta = nearestOccurrence(cell.row, shoulderRow, POOL_ROWS) - cell.row
-      const logicalRow = cell.row + rowDelta
-      if (Math.abs(logicalRow - shoulderRow) > 5) {
-        // 远行：拖到远处隐藏，不逐帧细化
-        this.pos.set(0, 1e6, 0)
-        this.one.setScalar(0.0001)
-        this.euler.set(0, 0, 0)
-        this.quat.setFromEuler(this.euler)
-        this.m4.compose(this.pos, this.quat, this.one)
-        for (const mesh of this.instances) mesh.setMatrixAt(i, this.m4)
-        return
-      }
+      const laneDelta = nearestOccurrence(cell.laneIdx, Math.round(this.shoulder.value), POOL_LANES) - cell.laneIdx
+      const logicalLane = cell.laneIdx + laneDelta
+      const dLanes = logicalLane - this.shoulder.value
 
-      const relRow = cell.row + rowDelta
-      const laneOffset = cell.lane - 2
-      const x = laneOffset * LANE_SPACING
-      const z = -(Math.abs(laneOffset) ** 1.5) * CURVE
-      const y = CARD_BASE_Y + (relRow - this.shoulder.value) * ROW_SPACING
+      const x = dLanes * LANE_SPACING
+      const z = (cell.rowIdx - CENTER_ROW) * ROW_SPACING + ROW_Z_OFFSET
+      const y = CARD_Y
 
-      const cStrength = columnStrength(cell.lane, this.laneFocus, detail)
+      const cStrength = columnStrength(logicalLane, this.shoulder.value, detail)
       let field =
-        settlingWave(cell.row - this.shoulder.value, 26.56) * cStrength +
-        idleWave(cell.row, cell.lane, time, idleGainValue * 0.12)
+        settlingWave(dLanes * LANE_SPACING, 26.56) * cStrength +
+        idleWave(cell.rowIdx, cell.laneIdx, time, idleGainValue * 0.12) +
+        archiveWave(cell.rowIdx, logicalLane, time) * bootWave * 0.55
       for (const pulse of this.pulses) {
-        const d = Math.hypot(cell.row - pulse.row, (cell.lane - pulse.lane) * 2.2)
+        // 距离按世界尺度折算（列距 5.2，行距 0.62）
+        const d = Math.hypot(dLanes, (cell.rowIdx - pulse.row) * (ROW_SPACING / LANE_SPACING))
         field += selectionWave(d, pulse.age) * cStrength
       }
 
       const slope =
-        (settlingWave(cell.row + 0.5 - this.shoulder.value, 26.56) -
-          settlingWave(cell.row - 0.5 - this.shoulder.value, 26.56)) *
+        (settlingWave(dLanes * LANE_SPACING + LANE_SPACING / 2, 26.56) -
+          settlingWave(dLanes * LANE_SPACING - LANE_SPACING / 2, 26.56)) *
         0.02 *
         (1 - detail)
 
@@ -481,13 +563,14 @@ export class ArchiveWallScene {
       this.quat.setFromEuler(this.euler)
       this.one.setScalar(hide)
       this.m4.compose(this.pos, this.quat, this.one)
-      for (const mesh of this.instances) mesh.setMatrixAt(i, this.m4)
+      this.glassMesh.setMatrixAt(i, this.m4)
+      this.coverMesh.setMatrixAt(i, this.m4)
     })
 
-    for (const mesh of this.instances) mesh.instanceMatrix.needsUpdate = true
+    this.glassMesh.instanceMatrix.needsUpdate = true
+    this.coverMesh.instanceMatrix.needsUpdate = true
 
     this.updateHover()
-    this.updatePrintPool()
     this.updateSelectedGroup()
 
     this.presentation.update(
@@ -502,94 +585,40 @@ export class ArchiveWallScene {
   }
 
   private cellWorldPosition(cell: Cell): THREE.Vector3 {
-    const rowDelta = nearestOccurrence(cell.row, Math.round(this.shoulder.value), POOL_ROWS) - cell.row
-    const relRow = cell.row + rowDelta
-    const laneOffset = cell.lane - 2
+    const laneDelta = nearestOccurrence(cell.laneIdx, Math.round(this.shoulder.value), POOL_LANES) - cell.laneIdx
+    const dLanes = cell.laneIdx + laneDelta - this.shoulder.value
     return new THREE.Vector3(
-      laneOffset * LANE_SPACING,
-      CARD_BASE_Y + (relRow - this.shoulder.value) * ROW_SPACING,
-      -(Math.abs(laneOffset) ** 1.5) * CURVE
+      dLanes * LANE_SPACING,
+      CARD_Y,
+      (cell.rowIdx - CENTER_ROW) * ROW_SPACING + ROW_Z_OFFSET
     )
   }
 
   private updateHover(): void {
     if (this.placement.value > 0.2 || this.presentation.state !== 'archive') {
       this.hoveredInstance = null
-      this.renderer.domElement.style.cursor = 'grab'
+      this.renderer.domElement.style.cursor = this.rotateDrag ? 'grabbing' : 'grab'
       return
     }
     this.raycaster.setFromCamera(this.pointer, this.camera)
-    const hits = this.raycaster.intersectObject(this.instances[0]!, false)
+    const hits = this.raycaster.intersectObject(this.coverMesh, false)
     const id = hits.length > 0 ? (hits[0]!.instanceId ?? null) : null
     this.hoveredInstance = id
     this.renderer.domElement.style.cursor = id !== null ? 'pointer' : 'grab'
   }
 
-  /** 印刷面池：把可见格位指派给池网格（含波场位移） */
-  private updatePrintPool(): void {
-    const shoulderRow = this.shoulder.value
-    const idleGainValue = Math.max(0, Math.min(1.6, this.idleGain.value))
-    const selectedSlot =
-      this.selectedCell && this.selectedItem !== null ? this.cells.indexOf(this.selectedCell) : -1
-
-    const assignments: Array<{ cell: Cell; x: number; y: number; z: number }> = []
-    for (const cell of this.cells) {
-      const rowDelta = nearestOccurrence(cell.row, Math.round(shoulderRow), POOL_ROWS) - cell.row
-      const relRow = cell.row + rowDelta
-      if (Math.abs(relRow - shoulderRow) > 3) continue
-      if (this.cells.indexOf(cell) === selectedSlot) continue
-      const laneOffset = cell.lane - 2
-      const x = laneOffset * LANE_SPACING
-      const y = CARD_BASE_Y + (relRow - shoulderRow) * ROW_SPACING
-      const z = -(Math.abs(laneOffset) ** 1.5) * CURVE + 0.085
-
-      const cStrength = columnStrength(cell.lane, this.laneFocus, this.placement.value)
-      let field =
-        settlingWave(cell.row - shoulderRow, 26.56) * cStrength +
-        idleWave(cell.row, cell.lane, this.clock.elapsedTime, idleGainValue * 0.12)
-      for (const pulse of this.pulses) {
-        const d = Math.hypot(cell.row - pulse.row, (cell.lane - pulse.lane) * 2.2)
-        field += selectionWave(d, pulse.age) * cStrength
-      }
-
-      assignments.push({ cell, x, y: y + Math.max(-0.3, field), z: z + field * 0.22 })
-    }
-
-    assignments.sort(
-      (a, b) => Math.abs(a.y - this.camera.position.y) - Math.abs(b.y - this.camera.position.y)
-    )
-
-    this.printPool.forEach((slot, poolIndex) => {
-      const assignment = assignments[poolIndex]
-      if (!assignment) {
-        ;(slot.mesh.material as THREE.MeshBasicMaterial).visible = false
-        slot.cell = null
-        return
-      }
-      slot.cell = assignment.cell
-      const material =
-        this.printMaterials[assignment.cell.itemIndex] ?? new THREE.MeshBasicMaterial({ visible: false })
-      slot.mesh.material = material
-      slot.mesh.position.set(assignment.x, assignment.y, assignment.z)
-      // 纹理比例 → cover 装裱窗（PRINT 尺寸为基准）
-      const texture = (material as THREE.MeshLambertMaterial).map
-      const aspect = texture?.image ? (texture.image as HTMLImageElement).width / (texture.image as HTMLImageElement).height : 1.5
-      const windowRatio = PRINT.width / PRINT.height
-      let sx = 1
-      let sy = 1
-      if (aspect > windowRatio) sx = windowRatio / aspect
-      else sy = aspect / windowRatio
-      slot.mesh.scale.set(sx, sy, 1)
-      ;(material as THREE.MeshLambertMaterial).visible = true
-    })
-  }
-
-  /** 选中实体卡：隐藏该格位实例，用独立 Group 承接 lift（沿 +z 出墙） */
+  /** 选中实体卡：隐藏该格位实例，用独立 Group 承接 hero 玻璃 + 专属高清纹理 */
   private updateSelectedGroup(): void {
     if (this.selectedItem === null || !this.selectedCell) {
       if (this.selectedGroup) {
         this.scene.remove(this.selectedGroup)
         this.selectedGroup = null
+        this.selectedCover = null
+      }
+      if (this.heroTexture) {
+        this.heroTexture.dispose()
+        this.heroTexture = null
+        this.heroItem = null
       }
       return
     }
@@ -597,18 +626,40 @@ export class ArchiveWallScene {
     if (!this.selectedGroup) {
       const group = new THREE.Group()
       const box = new THREE.BoxGeometry(CASE.width, CASE.height, CASE.depth)
-      for (let i = 0; i < 3; i += 1) group.add(new THREE.Mesh(box, this.frameMaterial))
-      const material =
-        this.printMaterials[this.selectedItem] ?? new THREE.MeshBasicMaterial({ visible: false })
-      const print = new THREE.Mesh(new THREE.PlaneGeometry(PRINT.width, PRINT.height), material)
-      print.position.z = PRINT.z
-      group.add(print)
+      group.add(new THREE.Mesh(box, this.cases.hero))
+      const coverGeo = new THREE.PlaneGeometry(COVER.width, COVER.height)
+      coverGeo.translate(0, 0, COVER.z)
+      this.selectedCover = new THREE.Mesh(
+        coverGeo,
+        new THREE.MeshLambertMaterial({ color: '#ffffff', transparent: true, toneMapped: false })
+      )
+      group.add(this.selectedCover)
       this.scene.add(group)
       this.selectedGroup = group
     }
 
+    if (this.heroItem !== this.selectedItem) {
+      this.heroItem = this.selectedItem
+      const url = this.itemUrls[this.selectedItem] ?? ''
+      new THREE.TextureLoader().load(url, (t) => {
+        if (this.disposed || this.heroItem !== this.selectedItem) {
+          t.dispose()
+          return
+        }
+        t.colorSpace = THREE.SRGBColorSpace
+        this.heroTexture?.dispose()
+        this.heroTexture = t
+        const material = this.selectedCover?.material as THREE.MeshLambertMaterial | undefined
+        if (material) {
+          material.map = t
+          material.needsUpdate = true
+        }
+      })
+    }
+
     this.selectedGroup.position.copy(this.cellWorldPosition(this.selectedCell))
     this.selectedGroup.position.z += this.lift.value
+    this.selectedGroup.rotation.y = this.rotate.value
   }
 
   resize(): void {
@@ -626,14 +677,20 @@ export class ArchiveWallScene {
   dispose(): void {
     this.disposed = true
     cancelAnimationFrame(this.frame)
+    if (this.watchdog !== null) window.clearInterval(this.watchdog)
     for (const [target, type, fn] of this.listeners) target.removeEventListener(type, fn)
     this.listeners = []
     const box = this.renderer.domElement.parentElement
-    for (const t of this.textures) t?.dispose()
-    for (const m of this.printMaterials) m?.dispose()
-    this.frameMaterial.dispose()
+    this.atlas.dispose()
+    this.coverMaterial.dispose()
+    this.heroTexture?.dispose()
+    this.cases.dispose()
     this.scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) obj.geometry.dispose()
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry.dispose()
+        const material = obj.material
+        if (material instanceof THREE.Material) material.dispose()
+      }
     })
     this.composer?.dispose()
     this.renderer.dispose()
