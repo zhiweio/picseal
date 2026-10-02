@@ -64,8 +64,6 @@ export interface BannerStyle {
   heightRatio: number
   /** 横幅底色 */
   bgColor: string
-  /** 文字左右内边距，占横幅高度比例 */
-  paddingX: number
   divider: boolean
   leftTop: FieldSlot
   leftBottom: FieldSlot
@@ -114,6 +112,8 @@ export interface WatermarkTemplate {
   corner: CornerStyle
   center: CenterStyle
   typography: {
+    /** 水印字体家族（见 core/fonts/registry），默认 Archivo */
+    font: string
     /** 字号整体缩放 0.6-1.4 */
     scale: number
     /** 尼康 Z 款的红色标记字符等特殊处理 */

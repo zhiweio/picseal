@@ -1,10 +1,13 @@
 import { z } from 'zod'
+import { FONT_FAMILIES, DEFAULT_FONT, type FontFamilyId } from '../fonts/registry'
 import type { WatermarkTemplate } from '../types'
 
 const fieldSlotSchema = z.object({
   enabled: z.boolean(),
   content: z.string().max(80)
 })
+
+const fontIds = Object.keys(FONT_FAMILIES) as [FontFamilyId, ...FontFamilyId[]]
 
 export const templateSchema = z.object({
   id: z.string().min(1).max(64),
@@ -22,7 +25,6 @@ export const templateSchema = z.object({
   banner: z.object({
     heightRatio: z.number().min(0.04).max(0.3),
     bgColor: z.string(),
-    paddingX: z.number().min(0.2).max(3),
     divider: z.boolean(),
     leftTop: fieldSlotSchema,
     leftBottom: fieldSlotSchema,
@@ -55,6 +57,7 @@ export const templateSchema = z.object({
     scrim: z.boolean()
   }),
   typography: z.object({
+    font: z.enum(fontIds).default(DEFAULT_FONT),
     scale: z.number().min(0.6).max(1.4),
     markColor: z.string().optional()
   })

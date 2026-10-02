@@ -1,28 +1,37 @@
 import type { CenterStyle, CornerStyle } from '../types'
+import type { FontFamilyId } from '../fonts/registry'
 import {
-  drawSegments,
-  drawText,
-  measureText,
+  drawInkSegments,
+  drawInkText,
+  markSegments,
   roundedRectPath,
-  type Ctx2D,
-  type TextStyle
+  measureInk,
+  type Ctx2D
 } from './canvas-utils'
 
-/** 角标排版：底部一行或多行（semi-utils normal1/normal2） */
+/**
+ * 角标排版 —— semi-utils normal1/normal2 锚点移植：
+ * normal1：文字墨迹高 = 3% 图高，右下对齐，边距 5% 图高；
+ * normal2：右缘锚定 93% 图宽、底线 95% 图高，墨迹高 2% 图高。
+ * 首行主字重主色，其余行副字重副色。
+ */
 export function drawCorner(
   ctx: Ctx2D,
   width: number,
   height: number,
   lines: string[],
   corner: CornerStyle,
-  typographyScale: number
+  family: FontFamilyId,
+  typographyScale: number,
+  mainWeight: number,
+  subWeight: number
 ): void {
   if (lines.length === 0) return
-  const size = width * corner.sizeRatio * typographyScale
-  const inset = width * 0.035
-  const lineH = size * (1 + corner.lineGap)
-  const startX = corner.position === 'bottom-right' ? width - inset : inset
+  const size = height * corner.sizeRatio * typographyScale
+  const insetY = height * 0.05
+  const anchorX = corner.position === 'bottom-right' ? width * 0.93 : width * 0.07
   const align = corner.position === 'bottom-right' ? 'right' : 'left'
+  const lineGap = size * (1 + corner.lineGap)
   const shadow = corner.textShadow
     ? { shadowColor: 'rgba(0,0,0,0.45)', shadowBlur: size * 0.4, shadowOffsetY: size * 0.06 }
     : undefined
@@ -34,13 +43,12 @@ export function drawCorner(
   }
 
   lines.forEach((text, i) => {
-    const style: TextStyle = {
-      size,
-      weight: i === 0 ? 600 : 400,
-      color: i === 0 ? corner.color : corner.subColor
-    }
-    const y = height - inset - (lines.length - 1 - i) * lineH
-    drawText(ctx, text, startX, y, style, align, 'alphabetic')
+    const weight = i === 0 ? mainWeight : subWeight
+    const color = i === 0 ? corner.color : corner.subColor
+    // 底线锚定：最末行墨迹底 = height − insetY，向上逐行排
+    const lineBottom = height - insetY - (lines.length - 1 - i) * lineGap
+    const m = measureInk(ctx, text, family, weight, size)
+    drawInkText(ctx, text, anchorX, lineBottom - m.height, size, { family, weight, color }, align)
   })
 
   ctx.shadowColor = 'transparent'
@@ -48,7 +56,7 @@ export function drawCorner(
   ctx.shadowOffsetY = 0
 }
 
-/** 居中标识：底部 scrim + 中央 logo + 小字（semi-utils center_logo） */
+/** 居中标识：底部 scrim + 中央 logo + 小字（semi-utils center_logo 的照片内变体） */
 export function drawCenterLogo(
   ctx: Ctx2D,
   width: number,
@@ -56,7 +64,9 @@ export function drawCenterLogo(
   logo: ImageBitmap | null,
   caption: string,
   center: CenterStyle,
+  family: FontFamilyId,
   typographyScale: number,
+  subWeight: number,
   markColor?: string
 ): void {
   if (center.scrim) {
@@ -77,66 +87,62 @@ export function drawCenterLogo(
 
   if (caption) {
     const size = width * 0.022 * typographyScale
-    const style: TextStyle = { size, weight: 400, color: center.captionColor }
     const capY = cy + height * 0.03
     if (markColor) {
-      drawMarked(ctx, caption, width / 2, capY, style, markColor)
+      drawInkSegments(
+        ctx,
+        markSegments(caption, center.captionColor, markColor),
+        width / 2,
+        capY,
+        size,
+        { family, weight: subWeight, color: center.captionColor },
+        'center'
+      )
     } else {
-      drawText(ctx, caption, width / 2, capY, style, 'center', 'middle')
+      drawInkText(ctx, caption, width / 2, capY, size, { family, weight: subWeight, color: center.captionColor }, 'center')
     }
   }
 }
 
-/** 雾面卡片中央文字：机型（含 Z 红标）+ 参数（semi-utils blur / nikon_blur） */
+/**
+ * 雾面卡片中央文字列 —— blur.json 的文字部分：
+ * 机型（Bold，3% 图高）+ 参数（Light，3% 图高），居中。
+ * 由 drawFrostedCard 调用，坐标已按主体列布局确定。
+ */
 export function drawCenterStack(
   ctx: Ctx2D,
-  width: number,
-  height: number,
-  top: string,
-  bottom: string,
-  opts: { scale: number; markColor?: string }
+  centerX: number,
+  modelY: number,
+  paramsY: number,
+  model: string,
+  params: string,
+  opts: {
+    family: FontFamilyId
+    mainWeight: number
+    subWeight: number
+    modelH: number
+    paramsH: number
+    markColor?: string
+  }
 ): void {
-  const mainSize = width * 0.052 * opts.scale
-  const subSize = width * 0.028 * opts.scale
-  const mainStyle: TextStyle = { size: mainSize, weight: 700, color: '#ffffff' }
-  const subStyle: TextStyle = { size: subSize, weight: 400, color: 'rgba(255,255,255,0.92)' }
-
-  const hasTop = top.length > 0
-  const hasBottom = bottom.length > 0
-  const groupH = (hasTop ? mainSize : 0) + (hasTop && hasBottom ? mainSize * 0.55 : 0) + (hasBottom ? subSize : 0)
-  let y = height / 2 - groupH / 2 + mainSize / 2
-
-  if (hasTop) {
+  if (model) {
     if (opts.markColor) {
-      drawMarked(ctx, top, width / 2, y, mainStyle, opts.markColor)
+      drawInkSegments(
+        ctx,
+        markSegments(model, '#ffffff', opts.markColor),
+        centerX,
+        modelY,
+        opts.modelH,
+        { family: opts.family, weight: opts.mainWeight, color: '#ffffff' },
+        'center'
+      )
     } else {
-      drawText(ctx, top, width / 2, y, mainStyle, 'center', 'middle')
+      drawInkText(ctx, model, centerX, modelY, opts.modelH, { family: opts.family, weight: opts.mainWeight, color: '#ffffff' }, 'center')
     }
   }
-  if (hasBottom) {
-    y += (hasTop ? mainSize * 0.55 + subSize / 2 : 0)
-    drawText(ctx, bottom, width / 2, y, subStyle, 'center', 'middle')
+  if (params) {
+    drawInkText(ctx, params, centerX, paramsY, opts.paramsH, { family: opts.family, weight: opts.subWeight, color: '#ffffff' }, 'center')
   }
-}
-
-/** 把文本中的高亮字符（默认 'Z'）用 markColor 绘制 —— 尼康 Z 款 */
-export function drawMarked(
-  ctx: Ctx2D,
-  text: string,
-  x: number,
-  y: number,
-  style: TextStyle,
-  markColor: string,
-  markChar = 'Z'
-): void {
-  const segments: Array<{ text: string; color: string }> = []
-  for (const ch of text) {
-    const last = segments[segments.length - 1]
-    const color = ch === markChar ? markColor : style.color
-    if (last && last.color === color) last.text += ch
-    else segments.push({ text: ch, color })
-  }
-  drawSegments(ctx, segments, x, y, style, 'center', 'middle')
 }
 
 /** 装裱底板（白边/圆角/投影） */

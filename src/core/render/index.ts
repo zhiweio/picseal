@@ -1,5 +1,6 @@
 import type { PhotoMeta, RenderOptions, WatermarkTemplate } from '../types'
 import { BRANDS, DEFAULT_LOGO } from '../brands'
+import { getFontFamily } from '../fonts/registry'
 import { drawBannerStrip, type BannerLines } from './banner'
 import {
   FontBook,
@@ -10,6 +11,7 @@ import {
 } from './canvas-utils'
 import { needsCjk, resolveField } from './fields'
 import { drawCenterLogo, drawCenterStack, drawCorner, drawMount } from './overlay'
+import { computeFrostedLayout } from './geometry'
 
 export interface RenderInput {
   photo: ImageBitmap
@@ -32,11 +34,12 @@ export interface RenderedGeometry {
  */
 export async function renderPhoto(input: RenderInput): Promise<OffscreenCanvas> {
   const { photo, meta, template, options } = input
-  await input.fonts.ensureBase()
+  const fontDef = getFontFamily(template.typography.font)
 
   const brand = meta.brandId ? BRANDS.find((b) => b.id === meta.brandId) : undefined
   const lines = resolveAllLines(template, { meta, brand })
-  if (lines.allText.some(needsCjk)) await input.fonts.ensureCjk()
+  if (lines.allText.some(needsCjk)) await input.fonts.ensureFamily(fontDef.id, true)
+  else await input.fonts.ensureFamily(fontDef.id, false)
 
   const hasBannerStrip =
     template.layout === 'banner' ||
@@ -47,9 +50,7 @@ export async function renderPhoto(input: RenderInput): Promise<OffscreenCanvas> 
   const centerLogoUrl =
     template.layout === 'center-logo' ? (brand?.logoOnDark ?? brand?.logo ?? DEFAULT_LOGO) : undefined
   const logo = logoUrl ? ((await input.logoBook.get(logoUrl)) ?? null) : null
-  const centerLogo = centerLogoUrl
-    ? ((await input.logoBook.get(centerLogoUrl)) ?? null)
-    : null
+  const centerLogo = centerLogoUrl ? ((await input.logoBook.get(centerLogoUrl)) ?? null) : null
 
   const geometry = computeGeometry(photo, template)
   const s = computeScale(geometry, options.maxLongEdge)
@@ -58,26 +59,40 @@ export async function renderPhoto(input: RenderInput): Promise<OffscreenCanvas> 
   const canvas = makeCanvas(g.width, g.height)
   const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
 
+  const typography = {
+    family: fontDef.id,
+    mainWeight: fontDef.mainWeight,
+    subWeight: fontDef.subWeight,
+    scale: template.typography.scale
+  }
+
   switch (template.layout) {
     case 'banner':
-      drawFlatWithBanner(ctx, photo, template, lines, logo, g)
+      drawFlatWithBanner(ctx, photo, template, lines, logo, g, typography)
       break
     case 'card':
       if (template.canvas.mount === 'blur') {
-        await drawFrostedCard(ctx, photo, template, lines, g)
+        drawFrostedCard(ctx, photo, template, lines, g, s, typography)
       } else {
-        drawMountedCard(ctx, photo, template, lines, logo, g)
+        drawMountedCard(ctx, photo, template, lines, logo, g, typography)
       }
       break
     case 'corner':
-      drawFlatWithCorner(ctx, photo, template, lines, g)
+      drawFlatWithCorner(ctx, photo, template, lines, g, typography)
       break
     case 'center-logo':
-      drawFlatWithCenterLogo(ctx, photo, template, lines, g, centerLogo)
+      drawFlatWithCenterLogo(ctx, photo, template, lines, g, centerLogo, typography)
       break
   }
 
   return canvas
+}
+
+type Typography = {
+  family: ReturnType<typeof getFontFamily>['id']
+  mainWeight: number
+  subWeight: number
+  scale: number
 }
 
 type ResolvedLines = {
@@ -142,7 +157,7 @@ function computeGeometry(photo: ImageBitmap, template: WatermarkTemplate): Rende
   const aspect = parseAspectRatio(canvas.aspectRatio)
 
   if (template.layout === 'banner') {
-    const bannerH = pW * template.banner.heightRatio
+    const bannerH = pH * template.banner.heightRatio * template.typography.scale
     return extendToAspect(
       { width: pW, height: pH + bannerH, photoRect: { x: 0, y: 0, w: pW, h: pH } },
       aspect,
@@ -152,20 +167,11 @@ function computeGeometry(photo: ImageBitmap, template: WatermarkTemplate): Rende
 
   if (template.layout === 'card') {
     if (canvas.mount === 'blur') {
-      const radius = pW * canvas.cornerRadius
-      void radius
-      // 雾面卡片：外框按画幅比例，照片作为模糊背景 cover
-      const target = aspect ?? pW / pH
-      let w = pW
-      let h = pW / target
-      if (h < pH) {
-        h = pH
-        w = pH * target
-      }
-      return { width: w, height: h, photoRect: { x: 0, y: 0, w, h } }
+      // 雾面卡片：裁切 135%（含文字列），画幅跟随原图
+      return { width: pW * 1.35, height: pH * 1.35, photoRect: { x: 0, y: 0, w: pW, h: pH } }
     }
     const m = pW * canvas.margin
-    const bannerH = pW * template.banner.heightRatio
+    const bannerH = pH * template.banner.heightRatio * template.typography.scale
     return extendToAspect(
       {
         width: pW + m * 2,
@@ -251,9 +257,9 @@ function drawPhotoRounded(
 ): void {
   ctx.save()
   if (shadowPx > 0) {
-    ctx.shadowColor = 'rgba(0,0,0,0.3)'
+    ctx.shadowColor = 'rgba(0,0,0,0.35)'
     ctx.shadowBlur = shadowPx
-    ctx.shadowOffsetY = shadowPx * 0.3
+    ctx.shadowOffsetY = shadowPx * 0.25
   }
   if (radius > 0) {
     roundedRectPath(ctx, rect.x, rect.y, rect.w, rect.h, radius)
@@ -271,7 +277,7 @@ function bannerStripRect(g: RenderedGeometry, t: WatermarkTemplate) {
     x: g.photoRect.x,
     y: g.photoRect.y + g.photoRect.h,
     w: g.photoRect.w,
-    h: g.photoRect.w * t.banner.heightRatio
+    h: g.photoRect.h * t.banner.heightRatio * 1.4
   }
 }
 
@@ -281,7 +287,8 @@ function drawFlatWithBanner(
   t: WatermarkTemplate,
   lines: ResolvedLines,
   logo: ImageBitmap | null,
-  g: RenderedGeometry
+  g: RenderedGeometry,
+  typography: Typography
 ): void {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
@@ -290,8 +297,16 @@ function drawFlatWithBanner(
     drawBannerStrip(
       ctx,
       bannerStripRect(g, t),
+      g.photoRect.h,
       lines.banner,
-      { banner: t.banner, typographyScale: t.typography.scale, logo }
+      {
+        banner: t.banner,
+        family: typography.family,
+        typographyScale: typography.scale,
+        mainWeight: typography.mainWeight,
+        subWeight: typography.subWeight,
+        logo
+      }
     )
   }
 }
@@ -302,7 +317,8 @@ function drawMountedCard(
   t: WatermarkTemplate,
   lines: ResolvedLines,
   logo: ImageBitmap | null,
-  g: RenderedGeometry
+  g: RenderedGeometry,
+  typography: Typography
 ): void {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
@@ -311,62 +327,101 @@ function drawMountedCard(
     drawBannerStrip(
       ctx,
       bannerStripRect(g, t),
+      g.photoRect.h,
       lines.banner,
-      { banner: t.banner, typographyScale: t.typography.scale, logo, transparentBg: true }
+      {
+        banner: t.banner,
+        family: typography.family,
+        typographyScale: typography.scale,
+        mainWeight: typography.mainWeight,
+        subWeight: typography.subWeight,
+        logo,
+        transparentBg: true
+      }
     )
   }
 }
 
-async function drawFrostedCard(
+/**
+ * 雾面卡片 —— blur.json 管线的 Canvas 移植：
+ * 清晰照片（圆角+投影）居中，机型/参数文字在其下方，
+ * 整体叠于 2× 放大的模糊背景上，画布即 135% 裁切结果。
+ */
+function drawFrostedCard(
   ctx: Ctx2D,
   photo: ImageBitmap,
   t: WatermarkTemplate,
   lines: ResolvedLines,
-  g: RenderedGeometry
-): Promise<void> {
-  const radius = g.width * t.canvas.cornerRadius
+  g: RenderedGeometry,
+  s: number,
+  typography: Typography
+): void {
+  const model = lines.centerTitle || lines.centerCaption
+  const params = lines.centerCaption !== model ? lines.centerCaption : ''
+  const layout = computeFrostedLayout(g.photoRect.w, g.photoRect.h, !!model, !!params, {
+    radiusRatio: t.canvas.cornerRadius > 0 ? t.canvas.cornerRadius : 0.02
+  })
 
-  if (t.canvas.shadow) {
-    ctx.save()
-    ctx.shadowColor = 'rgba(0,0,0,0.35)'
-    ctx.shadowBlur = g.width * 0.015
-    ctx.shadowOffsetY = g.width * 0.006
-    ctx.fillStyle = '#111'
-    roundedRectPath(ctx, 0, 0, g.width, g.height, radius)
-    ctx.fill()
-    ctx.restore()
-  }
+  const S = (v: number) => v * s
 
+  // 1. 背景：2× 放大的模糊原图（ctx.filter 不可用时降采样回退）
   ctx.save()
-  roundedRectPath(ctx, 0, 0, g.width, g.height, radius)
-  ctx.clip()
-
-  // 背景：cover 放大 + 高斯模糊（ctx.filter 不可用时用缩放回退）
-  const cover = coverRect(photo.width, photo.height, g.width, g.height)
-  ctx.imageSmoothingEnabled = true
-  const blurPx = g.width * 0.02
+  const blurPx = g.photoRect.h * s * 0.05
   if (supportsFilter(ctx)) {
     ctx.filter = `blur(${blurPx}px)`
-    ctx.drawImage(photo, cover.x, cover.y, cover.w, cover.h)
+    ctx.drawImage(
+      photo,
+      S(layout.backdrop.x),
+      S(layout.backdrop.y),
+      S(layout.backdrop.w),
+      S(layout.backdrop.h)
+    )
     ctx.filter = 'none'
   } else {
-    const tiny = Math.max(8, Math.round(g.width / 48))
-    const tmp = new OffscreenCanvas(tiny, Math.round((tiny * photo.height) / photo.width))
-    const tctx = tmp.getContext('2d')!
-    tctx.drawImage(photo, 0, 0, tmp.width, tmp.height)
-    ctx.drawImage(tmp, cover.x, cover.y, cover.w, cover.h)
+    const tinyW = Math.max(8, Math.round(g.photoRect.w / 40))
+    const tiny = new OffscreenCanvas(tinyW, Math.max(8, Math.round((tinyW * photo.height) / photo.width)))
+    const tctx = tiny.getContext('2d')!
+    tctx.drawImage(photo, 0, 0, tiny.width, tiny.height)
+    ctx.drawImage(tiny, S(layout.backdrop.x), S(layout.backdrop.y), S(layout.backdrop.w), S(layout.backdrop.h))
   }
-  // 轻压暗保证文字对比
-  ctx.fillStyle = 'rgba(0,0,0,0.16)'
-  ctx.fillRect(0, 0, g.width, g.height)
   ctx.restore()
 
-  const title = lines.centerTitle || lines.centerCaption
-  const caption = lines.centerCaption !== title ? lines.centerCaption : ''
-  drawCenterStack(ctx, g.width, g.height, title, caption, {
-    scale: t.typography.scale,
-    markColor: t.typography.markColor
-  })
+  // 2. 清晰照片：圆角 + 投影，居中
+  const photoRect = {
+    x: S(layout.photo.x),
+    y: S(layout.photo.y),
+    w: S(layout.photo.w),
+    h: S(layout.photo.h)
+  }
+  ctx.save()
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'
+  ctx.shadowBlur = g.photoRect.h * s * 0.02
+  ctx.fillStyle = '#000'
+  roundedRectPath(ctx, photoRect.x, photoRect.y, photoRect.w, photoRect.h, S(layout.radius))
+  ctx.fill()
+  ctx.shadowColor = 'transparent'
+  roundedRectPath(ctx, photoRect.x, photoRect.y, photoRect.w, photoRect.h, S(layout.radius))
+  ctx.clip()
+  ctx.drawImage(photo, photoRect.x, photoRect.y, photoRect.w, photoRect.h)
+  ctx.restore()
+
+  // 3. 文字列（照片下方）
+  drawCenterStack(
+    ctx,
+    g.width / 2,
+    S(layout.modelY),
+    S(layout.paramsY),
+    model,
+    params,
+    {
+      family: typography.family,
+      mainWeight: typography.mainWeight,
+      subWeight: typography.subWeight,
+      modelH: S(layout.modelH),
+      paramsH: S(layout.paramsH),
+      markColor: t.typography.markColor
+    }
+  )
 }
 
 function drawFlatWithCorner(
@@ -374,12 +429,23 @@ function drawFlatWithCorner(
   photo: ImageBitmap,
   t: WatermarkTemplate,
   lines: ResolvedLines,
-  g: RenderedGeometry
+  g: RenderedGeometry,
+  typography: Typography
 ): void {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
   drawPhotoRounded(ctx, photo, g.photoRect, radius, 0)
-  drawCorner(ctx, g.width, g.height, lines.corner, t.corner, t.typography.scale)
+  drawCorner(
+    ctx,
+    g.width,
+    g.height,
+    lines.corner,
+    t.corner,
+    typography.family,
+    typography.scale,
+    typography.mainWeight,
+    typography.subWeight
+  )
 }
 
 function drawFlatWithCenterLogo(
@@ -388,7 +454,8 @@ function drawFlatWithCenterLogo(
   t: WatermarkTemplate,
   lines: ResolvedLines,
   g: RenderedGeometry,
-  logo: ImageBitmap | null
+  logo: ImageBitmap | null,
+  typography: Typography
 ): void {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
@@ -400,16 +467,11 @@ function drawFlatWithCenterLogo(
     logo,
     lines.centerCaption,
     t.center,
-    t.typography.scale,
+    typography.family,
+    typography.scale,
+    typography.subWeight,
     t.typography.markColor
   )
-}
-
-function coverRect(srcW: number, srcH: number, dstW: number, dstH: number) {
-  const scale = Math.max(dstW / srcW, dstH / srcH)
-  const w = srcW * scale
-  const h = srcH * scale
-  return { x: (dstW - w) / 2, y: (dstH - h) / 2, w, h }
 }
 
 function supportsFilter(ctx: Ctx2D): boolean {

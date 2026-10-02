@@ -1,43 +1,41 @@
 /**
- * 字体与位图加载 —— worker 与主线程通用（无 DOM 依赖）。
- * woff2 通过 fetch + FontFace 注册到当前全局的 FontFaceSet。
+ * 字体加载与文本绘制 —— worker 与主线程通用（无 DOM 依赖）。
+ *
+ * 墨迹文本（ink text）：semi-utils 的 rich_text 先把文字裁切到墨迹包围盒
+ * 再缩放到目标高度（光学对齐）；Canvas 等价实现 = 用 TextMetrics 的
+ * actualBoundingBox* 测墨迹盒，按目标墨迹高反推 fontPx 后绘制。
  */
+import { getFontFamily, type FontFamilyId } from '../fonts/registry'
 
 export type Ctx2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
 
-const LATIN_FONTS: Array<{ weight: number; url: string }> = [
-  { weight: 300, url: '/fonts/MiSans-Light-latin.woff2' },
-  { weight: 400, url: '/fonts/MiSans-Regular-latin.woff2' },
-  { weight: 600, url: '/fonts/MiSans-Demibold-latin.woff2' },
-  { weight: 700, url: '/fonts/MiSans-Bold-latin.woff2' }
-]
-
-const CJK_FONTS: Array<{ weight: number; url: string }> = [
-  { weight: 400, url: '/fonts/wm/MiSans-Regular-cjk.woff2' },
-  { weight: 600, url: '/fonts/wm/MiSans-Demibold-cjk.woff2' },
-  { weight: 700, url: '/fonts/wm/MiSans-Bold-cjk.woff2' }
-]
-
-export const WATERMARK_FONT = 'MiSans'
+const PROBE_PX = 200
 
 export class FontBook {
   private loaded = new Set<string>()
 
-  async ensureBase(): Promise<void> {
-    await Promise.all(LATIN_FONTS.map((f) => this.load(f.weight, f.url)))
+  /** 加载一个家族的拉丁子集（全部推荐字重），需要中文时再加载 CJK 子集 */
+  async ensureFamily(familyId: FontFamilyId, needCjk: boolean): Promise<void> {
+    const def = getFontFamily(familyId)
+    const jobs: Array<Promise<void>> = []
+    for (const weight of def.weights) {
+      const latinFile = def.latin[weight]
+      if (latinFile) jobs.push(this.load(def.cssName, weight, latinFile))
+      const cjkFile = def.cjk?.[weight]
+      if (needCjk && cjkFile && cjkFile !== latinFile) {
+        jobs.push(this.load(def.cssName, weight, cjkFile))
+      }
+    }
+    await Promise.all(jobs)
   }
 
-  async ensureCjk(): Promise<void> {
-    await Promise.all(CJK_FONTS.map((f) => this.load(f.weight, f.url)))
-  }
-
-  private async load(weight: number, url: string): Promise<void> {
-    const key = `MiSans:${weight}`
+  private async load(cssName: string, weight: number, url: string): Promise<void> {
+    const key = `${cssName}:${weight}:${url}`
     if (this.loaded.has(key)) return
     const res = await fetch(url)
     if (!res.ok) throw new Error(`font fetch failed: ${url}`)
     const buf = await res.arrayBuffer()
-    const face = new FontFace(WATERMARK_FONT, buf, { weight: String(weight) })
+    const face = new FontFace(cssName, buf, { weight: String(weight) })
     await face.load()
     const fonts = (globalThis as unknown as { fonts: FontFaceSet }).fonts
     fonts.add(face)
@@ -65,60 +63,126 @@ export class LogoBook {
   }
 }
 
-/* ───────────────────────── 绘制工具 ───────────────────────── */
+/* ───────────────────────── 墨迹文本 ───────────────────────── */
 
-export interface TextStyle {
-  size: number
+export interface InkStyle {
+  family: FontFamilyId
   weight: number
   color: string
+  caps?: boolean
 }
 
-export function applyFont(ctx: Ctx2D, style: TextStyle): void {
-  ctx.font = `${style.weight} ${style.size}px ${WATERMARK_FONT}, sans-serif`
+export interface InkMetrics {
+  /** 达到目标墨迹高所需的 fontPx */
+  fontPx: number
+  /** 墨迹宽（px） */
+  width: number
+  /** 墨迹高（px） */
+  height: number
+  /** 墨迹顶到基线的距离 */
+  ascent: number
+  /** 对齐点到墨迹左缘的距离（Canvas actualBoundingBoxLeft 语义） */
+  left: number
 }
 
-export function measureText(ctx: Ctx2D, text: string, style: TextStyle): number {
-  applyFont(ctx, style)
-  return ctx.measureText(text).width
+function fontShorthand(def: { cssName: string }, weight: number, px: number): string {
+  return `${weight} ${px}px "${def.cssName}", sans-serif`
 }
 
-export function drawText(
+/** 测量一行文字的墨迹盒，返回按目标墨迹高缩放后的精确度量 */
+export function measureInk(
   ctx: Ctx2D,
-  text: string,
-  x: number,
-  y: number,
-  style: TextStyle,
-  align: 'left' | 'right' | 'center' = 'left',
-  baseline: CanvasTextBaseline = 'middle'
-): void {
-  applyFont(ctx, style)
-  ctx.fillStyle = style.color
-  ctx.textAlign = align
-  ctx.textBaseline = baseline
-  ctx.fillText(text, x, y)
+  rawText: string,
+  family: FontFamilyId,
+  weight: number,
+  targetHeight: number
+): InkMetrics {
+  const def = getFontFamily(family)
+  const text = def.capsOnly ? rawText.toUpperCase() : rawText
+
+  ctx.font = fontShorthand(def, weight, PROBE_PX)
+  const probe = ctx.measureText(text || ' ')
+  const probeInkH = probe.actualBoundingBoxAscent + probe.actualBoundingBoxDescent
+  const fontPx = probeInkH > 0 ? (targetHeight * PROBE_PX) / probeInkH : targetHeight
+
+  ctx.font = fontShorthand(def, weight, fontPx)
+  const m = ctx.measureText(text || ' ')
+  const width = m.actualBoundingBoxLeft + m.actualBoundingBoxRight
+  const height = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent
+  return { fontPx, width, height, ascent: m.actualBoundingBoxAscent, left: m.actualBoundingBoxLeft }
 }
 
-/** 混排绘制：segments 依次排列，用于尼康 Z 红字等场景 */
-export function drawSegments(
+/**
+ * 绘制一行墨迹对齐文本。
+ * @param x 锚点（align=left 时为墨迹左缘；right 为墨迹右缘；center 为墨迹中线）
+ * @param yTop 墨迹顶部 y
+ * @returns 墨迹宽
+ */
+export function drawInkText(
+  ctx: Ctx2D,
+  rawText: string,
+  x: number,
+  yTop: number,
+  targetHeight: number,
+  style: InkStyle,
+  align: 'left' | 'right' | 'center' = 'left'
+): number {
+  if (!rawText) return 0
+  const def = getFontFamily(style.family)
+  const text = def.capsOnly ? rawText.toUpperCase() : rawText
+  const m = measureInk(ctx, text, style.family, style.weight, targetHeight)
+
+  let originX: number
+  if (align === 'left') originX = x + m.left
+  else if (align === 'right') originX = x + m.left - m.width
+  else originX = x + m.left - m.width / 2
+
+  ctx.font = fontShorthand(def, style.weight, m.fontPx)
+  ctx.fillStyle = style.color
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillText(text, originX, yTop + m.ascent)
+  return m.width
+}
+
+/** 混排绘制（等高行内多段异色，用于尼康 Z 红字）：段间以字符串拼接测量 */
+export function drawInkSegments(
   ctx: Ctx2D,
   segments: Array<{ text: string; color: string }>,
   x: number,
-  y: number,
-  style: TextStyle,
-  align: 'left' | 'right' | 'center' = 'left',
-  baseline: CanvasTextBaseline = 'middle'
-): void {
-  const total = segments.reduce((w, s) => w + measureText(ctx, s.text, style), 0)
-  let cursor = align === 'left' ? x : align === 'center' ? x - total / 2 : x - total
-  applyFont(ctx, style)
-  ctx.textAlign = 'left'
-  ctx.textBaseline = baseline
-  for (const seg of segments) {
-    ctx.fillStyle = seg.color
-    ctx.fillText(seg.text, cursor, y)
-    cursor += ctx.measureText(seg.text).width
-  }
+  yTop: number,
+  targetHeight: number,
+  style: InkStyle,
+  align: 'left' | 'right' | 'center' = 'left'
+): number {
+  const widths = segments.map((s) => measureInk(ctx, s.text, style.family, style.weight, targetHeight).width)
+  const total = widths.reduce((a, b) => a + b, 0)
+  let cursor = align === 'left' ? x : align === 'right' ? x - total : x - total / 2
+  segments.forEach((seg, i) => {
+    drawInkText(ctx, seg.text, cursor, yTop, targetHeight, { ...style, color: seg.color }, 'left')
+    cursor += widths[i]!
+  })
+  return total
 }
+
+/** 把文本中的高亮字符（默认 'Z'）换色为段 —— 尼康 Z 款 */
+export function markSegments(
+  text: string,
+  baseColor: string,
+  markColor: string,
+  markChar = 'Z'
+): Array<{ text: string; color: string }> {
+  const segments: Array<{ text: string; color: string }> = []
+  for (const ch of text) {
+    const last = segments[segments.length - 1]
+    const color = ch === markChar ? markColor : baseColor
+    if (last && last.color === color) last.text += ch
+    else segments.push({ text: ch, color })
+  }
+  return segments
+}
+
+/* ───────────────────────── 几何工具 ───────────────────────── */
 
 /** roundRect 兼容封装（老 runtime 无 ctx.roundRect） */
 export function roundedRectPath(

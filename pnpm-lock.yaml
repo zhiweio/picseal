@@ -54,6 +54,21 @@ importers:
         specifier: ^5.0.3
         version: 5.0.15(@types/react@19.3.0)(react@19.3.0)
     devDependencies:
+      '@fontsource/archivo':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/bebas-neue':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/oswald':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/playfair-display':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/roboto':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@tailwindcss/postcss':
         specifier: ^4.0.0
         version: 4.3.3
@@ -69,6 +84,9 @@ importers:
       '@types/three':
         specifier: ^0.173.0
         version: 0.173.0
+      iconv-lite:
+        specifier: ^0.7.3
+        version: 0.7.3
       sharp:
         specifier: ^0.35.5
         version: 0.35.5(@types/node@22.20.4)
@@ -246,6 +264,21 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@fontsource/archivo@5.3.0':
+    resolution: {integrity: sha512-5DIMgPVJRi62OqdOVoogCFxP73EkNM/E0YVTSDIQlDEJfDbxqZduwM/YoNZwC9Sx1CDgpKinqf8ckRY1QNIecw==}
+
+  '@fontsource/bebas-neue@5.3.0':
+    resolution: {integrity: sha512-nCxMEb9Bg9sjNWm9TIOsvHKDMLRUfEZPWpLgYu6m9KavZZVSA/WoHzI5wROwqA+eNwEi/PNBAcB5Co7HA3S0Cw==}
+
+  '@fontsource/oswald@5.3.0':
+    resolution: {integrity: sha512-16r2aHActe0pH+9FLdk/74/YxXM7HpGak05kAzx3RvSToiJwGvyhv6GvckPz+YuZmvL1nxWbEop2jAXRcXYPRg==}
+
+  '@fontsource/playfair-display@5.3.0':
+    resolution: {integrity: sha512-uJSABalvdWc10fEPppQjQocamT21LEyRfzzWfRfqbkPz+sRv+kKpYDKyluBUskvJREkJTos9epj1WjQROGu99Q==}
+
+  '@fontsource/roboto@5.3.0':
+    resolution: {integrity: sha512-BapRJOWYP+LZ21zp+wBQjfpPYKRoxc4LspJ/RLuI+HSMBD5u/X4O+ESDrSvEqDSy0rAl7GwBJ+09mdc16cVQ1Q==}
 
   '@formatjs/ecma402-abstract@2.3.6':
     resolution: {integrity: sha512-HJnTFeRM2kVFVr5gr5kH1XP6K0JcJtE7Lzvtr3FS/so5f1kpsqqqxy5JF+FRaO6H2qmcMfAUIox7AJteieRtVw==}
@@ -1045,6 +1078,10 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
+  iconv-lite@0.7.3:
+    resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
+    engines: {node: '>=0.10.0'}
+
   intl-messageformat@10.7.18:
     resolution: {integrity: sha512-m3Ofv/X/tV8Y3tHXLohcuVuhWKo7BBq62cqY15etqmLxg2DZ34AGGgQDeR+SCta2+zICb1NX83af0GJmbQ1++g==}
 
@@ -1217,6 +1254,9 @@ packages:
     resolution: {integrity: sha512-w4+GKyTBqshj84F1GF3s2zxAPFZPEmNkCbQtqilsYS7GsksmX6VoV7UggfZg8sUHCCOkBe7UtQp6fZwbH311FQ==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
+
+  safer-buffer@2.1.2:
+    resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
 
   scheduler@0.28.0:
     resolution: {integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==}
@@ -1500,6 +1540,16 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.2':
     optional: true
+
+  '@fontsource/archivo@5.3.0': {}
+
+  '@fontsource/bebas-neue@5.3.0': {}
+
+  '@fontsource/oswald@5.3.0': {}
+
+  '@fontsource/playfair-display@5.3.0': {}
+
+  '@fontsource/roboto@5.3.0': {}
 
   '@formatjs/ecma402-abstract@2.3.6':
     dependencies:
@@ -2128,6 +2178,10 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
+  iconv-lite@0.7.3:
+    dependencies:
+      safer-buffer: 2.1.2
+
   intl-messageformat@10.7.18:
     dependencies:
       '@formatjs/ecma402-abstract': 2.3.6
@@ -2298,6 +2352,8 @@ snapshots:
       '@rollup/rollup-win32-x64-gnu': 4.63.6
       '@rollup/rollup-win32-x64-msvc': 4.63.6
       fsevents: 2.3.3
+
+  safer-buffer@2.1.2: {}
 
   scheduler@0.28.0: {}
 

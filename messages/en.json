@@ -76,7 +76,8 @@
       "margin": "Margin",
       "canvasColor": "Canvas",
       "aspectRatio": "Aspect",
-      "aspectOriginal": "Original"
+      "aspectOriginal": "Original",
+      "font": "Font"
     },
     "export": {
       "label": "Delivery",
@@ -150,14 +151,38 @@
     }
   },
   "templates": {
-    "mi-classic": { "name": "Classic Banner", "nameEn": "CLASSIC BANNER" },
-    "banner-pro": { "name": "Standard Banner", "nameEn": "STANDARD BANNER" },
-    "card-shadow": { "name": "Mounted Card", "nameEn": "MOUNTED CARD" },
-    "card-blur": { "name": "Frosted Card", "nameEn": "FROSTED CARD" },
-    "nikon-z": { "name": "Z Mark", "nameEn": "Z MARK" },
-    "corner-minimal": { "name": "Corner Data", "nameEn": "CORNER DATA" },
-    "caption": { "name": "Caption", "nameEn": "CAPTION" },
-    "center-logo": { "name": "Center Mark", "nameEn": "CENTER MARK" }
+    "mi-classic": {
+      "name": "Classic Banner",
+      "nameEn": "CLASSIC BANNER"
+    },
+    "banner-pro": {
+      "name": "Standard Banner",
+      "nameEn": "STANDARD BANNER"
+    },
+    "card-shadow": {
+      "name": "Mounted Card",
+      "nameEn": "MOUNTED CARD"
+    },
+    "card-blur": {
+      "name": "Frosted Card",
+      "nameEn": "FROSTED CARD"
+    },
+    "nikon-z": {
+      "name": "Z Mark",
+      "nameEn": "Z MARK"
+    },
+    "corner-minimal": {
+      "name": "Corner Data",
+      "nameEn": "CORNER DATA"
+    },
+    "caption": {
+      "name": "Caption",
+      "nameEn": "CAPTION"
+    },
+    "center-logo": {
+      "name": "Center Mark",
+      "nameEn": "CENTER MARK"
+    }
   },
   "common": {
     "close": "Close",

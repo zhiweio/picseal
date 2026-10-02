@@ -13,6 +13,7 @@ import {
   TermSwitch
 } from '@/components/ui/primitives'
 import { BUILTIN_TEMPLATES } from '@/core/templates/builtin'
+import { FONT_FAMILIES, FONT_GROUP_LABELS, type FontGroup } from '@/core/fonts/registry'
 import type { FieldSlot, WatermarkTemplate } from '@/core/types'
 import { useSettings, type SavedPreset } from '@/stores/settings'
 import { usePhotos } from '@/stores/photos'
@@ -309,8 +310,29 @@ function AppearancePanel() {
   const template = useSettings((s) => s.template)
   const update = useSettings((s) => s.update)
 
+  const fontGroups = Object.keys(FONT_GROUP_LABELS) as FontGroup[]
+
   return (
     <Panel label={t('appearance.label')} labelEn={t('appearance.labelEn')}>
+      <Row label={t('appearance.font')}>
+        <select
+          value={template.typography.font}
+          onChange={(e) => update((d) => void (d.typography.font = e.target.value))}
+          className="h-7 min-w-0 flex-1 border border-line bg-transparent px-1.5 text-[11px] outline-none"
+        >
+          {fontGroups.map((group) => (
+            <optgroup key={group} label={`${FONT_GROUP_LABELS[group].zh} / ${FONT_GROUP_LABELS[group].en}`}>
+              {Object.values(FONT_FAMILIES)
+                .filter((f) => f.group === group)
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
+      </Row>
       <Row label={t('appearance.scale')}>
         <div className="w-36">
           <TermSlider

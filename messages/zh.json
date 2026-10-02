@@ -76,7 +76,8 @@
       "margin": "边距",
       "canvasColor": "底色",
       "aspectRatio": "画幅",
-      "aspectOriginal": "原始"
+      "aspectOriginal": "原始",
+      "font": "字体"
     },
     "export": {
       "label": "输出",
@@ -150,14 +151,38 @@
     }
   },
   "templates": {
-    "mi-classic": { "name": "经典横幅", "nameEn": "CLASSIC BANNER" },
-    "banner-pro": { "name": "标准横幅", "nameEn": "STANDARD BANNER" },
-    "card-shadow": { "name": "装裱卡片", "nameEn": "MOUNTED CARD" },
-    "card-blur": { "name": "雾面卡片", "nameEn": "FROSTED CARD" },
-    "nikon-z": { "name": "Z 字红标", "nameEn": "Z MARK" },
-    "corner-minimal": { "name": "角标参数", "nameEn": "CORNER DATA" },
-    "caption": { "name": "图注", "nameEn": "CAPTION" },
-    "center-logo": { "name": "居中标识", "nameEn": "CENTER MARK" }
+    "mi-classic": {
+      "name": "经典横幅",
+      "nameEn": "CLASSIC BANNER"
+    },
+    "banner-pro": {
+      "name": "标准横幅",
+      "nameEn": "STANDARD BANNER"
+    },
+    "card-shadow": {
+      "name": "装裱卡片",
+      "nameEn": "MOUNTED CARD"
+    },
+    "card-blur": {
+      "name": "雾面卡片",
+      "nameEn": "FROSTED CARD"
+    },
+    "nikon-z": {
+      "name": "Z 字红标",
+      "nameEn": "Z MARK"
+    },
+    "corner-minimal": {
+      "name": "角标参数",
+      "nameEn": "CORNER DATA"
+    },
+    "caption": {
+      "name": "图注",
+      "nameEn": "CAPTION"
+    },
+    "center-logo": {
+      "name": "居中标识",
+      "nameEn": "CENTER MARK"
+    }
   },
   "common": {
     "close": "关闭",
