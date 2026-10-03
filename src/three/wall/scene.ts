@@ -157,6 +157,8 @@ export class ArchiveWallScene {
   private musicNavigationLift = false
   private pendingPulse: Cell | null = null
   private pulses: Pulse[] = []
+  /** 两段式打开的延迟抽出计时器 */
+  private pendingOpen: number | null = null
 
   // 四轨：shoulder=行焦点，laneFocus=列焦点，columnCamera=横向轨道，rail=纵深轨道
   private shoulder: Spring = spring(0)
@@ -537,6 +539,10 @@ export class ArchiveWallScene {
   }
 
   setMode(mode: 'hidden' | 'archive' | 'detail'): void {
+    if (this.pendingOpen !== null) {
+      window.clearTimeout(this.pendingOpen)
+      this.pendingOpen = null
+    }
     this.musicPresentation.request(mode)
     if (mode === 'detail')
       this.decryption.enter(this.scanBlend > 0.9 && this.decryption.clarity > 0.999)
@@ -747,6 +753,26 @@ export class ArchiveWallScene {
     this.pulses = this.pulses.slice(-6)
   }
 
+  /**
+   * 两段式打开：点击后先跟焦滑动（约 0.35s 过渡），轨道带着新卡对齐检视槽
+   * 时再抽出。期间再点其他卡则改道（可连续快速换卡浏览），退出检视/换选取消。
+   */
+  private scheduleOpen(cell: Cell): void {
+    if (this.pendingOpen !== null) window.clearTimeout(this.pendingOpen)
+    const target = { ...cell }
+    this.pendingOpen = window.setTimeout(() => {
+      this.pendingOpen = null
+      if (
+        !this.disposed &&
+        this.loaded &&
+        !this.musicPresentation.placed &&
+        this.musicPresentation.phase !== 'hidden' &&
+        sameCell(this.selectedCell, target)
+      )
+        this.setMode('detail')
+    }, 350)
+  }
+
   /* ── 交互 ── */
 
   private bind(container: HTMLElement): void {
@@ -857,9 +883,15 @@ export class ArchiveWallScene {
         if (!sameCell(hit, this.selectedCell)) this.switchAlbum(hit.item, hit)
         return
       }
-      // 浏览态：点哪张抽哪张（demo 交互）——先跟焦选卡再进检视
-      if (!sameCell(hit, this.selectedCell)) this.select(hit.item, hit)
-      this.setMode('detail')
+      // 浏览态两段式：点击脉冲反馈 → 跟焦滑动过渡 → 抽出打开
+      if (!sameCell(hit, this.selectedCell)) {
+        this.select(hit.item, hit)
+        this.emitPulse(hit)
+        this.scheduleOpen(hit)
+      } else {
+        this.emitPulse(hit)
+        this.setMode('detail')
+      }
     })
 
     on<PointerEvent>(canvas, 'pointercancel', (e) => {
@@ -930,14 +962,20 @@ export class ArchiveWallScene {
 
   private raycastCell(): Cell | null {
     this.raycaster.setFromCamera(this.cursor, this.camera)
+    // 整卡命中：印刷窗 + 三表面玻璃壳都算（点边框/书脊也能选中，不只是照片区域）
     const targets: THREE.Object3D[] = this.coverPages.map((p) => p.mesh)
-    if (this.model?.visible) targets.push(this.modelPrint!)
-    const hit = this.raycaster.intersectObjects(targets, false)[0]
+    targets.push(...this.shellInstances)
+    if (this.model?.visible) targets.push(this.model!)
+    const hit = this.raycaster.intersectObjects(targets, true)[0]
     if (!hit) return null
-    if (hit.object === this.modelPrint) return this.selectedCell
-    const page = this.coverPages.findIndex((p) => p.mesh === hit.object)
+    if (hit.object === this.modelPrint || (this.model && hit.object.parent === this.model))
+      return this.selectedCell
     const local = hit.instanceId ?? null
-    if (page < 0 || local === null) return null
+    if (local === null) return null
+    if (this.shellInstances.includes(hit.object as THREE.InstancedMesh))
+      return this.cells[local] ?? null
+    const page = this.coverPages.findIndex((p) => p.mesh === hit.object)
+    if (page < 0) return null
     return this.cells[this.coverPages[page]!.cells[local]!] ?? null
   }
 
@@ -1235,6 +1273,9 @@ export class ArchiveWallScene {
       cameraPosition.y -= this.pointer.y * 0.12
     }
     this.musicCamera.update(this.camera, this.cameraAim, cameraPosition, cameraAim, framing.span, dt, reduced)
+    // fov 每帧随推轨变化，投影矩阵必须同步刷新；只靠 resize 快照会把检视卡放大出画（demo 同规则）
+    this.camera.updateProjectionMatrix()
+    this.camera.updateMatrixWorld()
     const detailTarget = this.musicPresentation.holdsDetail ? 1 : 0
     const liftTarget = this.musicPresentation.holdsDetail ? INSPECTION_LIFT : previewLift * this.targetReveal
     const tracksSettled = musicArchiveTracksSettled(
@@ -1259,7 +1300,7 @@ export class ArchiveWallScene {
     const renderedDistance = this.camera.position.distanceTo(this.cameraAim)
     const fog = this.scene.fog as THREE.Fog
     fog.near = renderedDistance + THREE.MathUtils.lerp(5, -1, this.detail)
-    fog.far = renderedDistance + THREE.MathUtils.lerp(25, 12, this.detail)
+    fog.far = renderedDistance + THREE.MathUtils.lerp(25, 15, this.detail)
 
     this.selectionLighting.update(model, this.camera, dt, this.reveal > 0 && items.length > 0, reduced)
 
@@ -1273,7 +1314,7 @@ export class ArchiveWallScene {
         .uniforms ?? {}
       if (uniforms.focus) uniforms.focus.value = Math.max(1, -local.z)
       if (uniforms.aperture)
-        uniforms.aperture.value = THREE.MathUtils.lerp(0.0003, 0.0008, this.detail)
+        uniforms.aperture.value = THREE.MathUtils.lerp(0.0003, 0.0006, this.detail)
     }
 
     // 阴影每帧单次更新（waves 持续改写实例矩阵）
@@ -1333,6 +1374,7 @@ export class ArchiveWallScene {
     }
     this.disposed = true
     cancelAnimationFrame(this.frame)
+    if (this.pendingOpen !== null) window.clearTimeout(this.pendingOpen)
     if (this.watchdog !== null) window.clearInterval(this.watchdog)
     this.resizeObserver?.disconnect()
     for (const [target, type, fn] of this.listeners) target.removeEventListener(type, fn)

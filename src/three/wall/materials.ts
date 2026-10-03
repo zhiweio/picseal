@@ -12,38 +12,42 @@ export type GlassFinish = Pick<
   'transmission' | 'thickness' | 'roughness' | 'attenuationDistance'
 >
 
-/** baseline = 夜间/默认；day = 昼间（更实、更雾，适配浅色背景） */
+/** baseline = 夜间/默认；day = 昼间（更实、更雾，适配浅色背景）。
+ *  全表面玻璃化（鸿蒙式光感）：透明玻璃 + 局部磨砂，通透优先；
+ *  Ivory_Edges（侧脊/边框）与 Optical_Diffuser（后壳）不再是骨色厚壁——
+ *  清澈薄玻璃，存在感来自 iridescence 薄膜虹彩 + clearcoat 流光 + fresnel 边缘微光。 */
 const GLASS_FINISH: Record<
   string,
   { baseline: GlassFinish; day: GlassFinish; dayColor: string }
 > = {
   Frosted_Polymer: {
-    baseline: { transmission: 0.96, thickness: 0.026, roughness: 0.4, attenuationDistance: 4.5 },
-    day: { transmission: 0.88, thickness: 0.1, roughness: 0.48, attenuationDistance: 1.2 },
-    dayColor: '#f3f0e9'
+    baseline: { transmission: 0.96, thickness: 0.026, roughness: 0.32, attenuationDistance: 4.5 },
+    day: { transmission: 0.9, thickness: 0.08, roughness: 0.42, attenuationDistance: 1.6 },
+    dayColor: '#f4f5f4'
   },
   Ivory_Edges: {
-    baseline: { transmission: 0.84, thickness: 0.06, roughness: 0.25, attenuationDistance: 4.5 },
-    day: { transmission: 0.66, thickness: 0.1, roughness: 0.34, attenuationDistance: 1.2 },
-    dayColor: '#e6ddd1'
+    baseline: { transmission: 0.96, thickness: 0.02, roughness: 0.09, attenuationDistance: 4.5 },
+    day: { transmission: 0.85, thickness: 0.05, roughness: 0.16, attenuationDistance: 1.6 },
+    dayColor: '#eef2f2'
   },
   Optical_Diffuser: {
-    baseline: { transmission: 0.66, thickness: 0.035, roughness: 0.4, attenuationDistance: 4.5 },
-    day: { transmission: 0.56, thickness: 0.07, roughness: 0.46, attenuationDistance: 1.2 },
-    dayColor: '#eee8df'
+    baseline: { transmission: 0.9, thickness: 0.024, roughness: 0.3, attenuationDistance: 4.5 },
+    day: { transmission: 0.8, thickness: 0.06, roughness: 0.4, attenuationDistance: 1.6 },
+    dayColor: '#f0f2f1'
   }
 }
 
-/** 磨砂玻璃壳的统一底色：磨砂聚合物之下是柔和的表面印刷 */
+/** 通透玻璃壳的统一底色（Rhine 式玻璃：中性白、无金属、无光学花活） */
 export function configurePhotoGlass(surface: string, material: THREE.MeshPhysicalMaterial): void {
-  material.color.set('#fffdfa')
+  material.color.set('#fbfcfc')
   material.metalness = 0
-  material.envMapIntensity = 0.65
+  material.envMapIntensity = 1.2
   material.ior = 1.46
-  material.attenuationColor.set('#f3e9db')
+  material.attenuationColor.set('#eef3f5')
   material.attenuationDistance = 4.5
-  material.clearcoat = 0.16
-  material.clearcoatRoughness = 0.2
+  material.clearcoat = 0.5
+  material.clearcoatRoughness = 0.12
+  material.specularIntensity = 1
   material.transparent = false
   material.opacity = 1
   const finish = GLASS_FINISH[surface]

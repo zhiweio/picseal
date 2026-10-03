@@ -49,8 +49,9 @@ export class SelectionLighting {
     targets.color(this.spot.color, night ? '#dbe9ff' : '#ffe3b2')
     targets.number(this.spot, 'intensity', (night ? 130 : 180) * 64)
     targets.color(this.scatterColor.value, night ? '#cee5ff' : '#ffdba3')
-    targets.number(this.scatterStrength, 'value', night ? 0.72 : 1)
-    targets.number(this.printAmbient, 'value', night ? 0.12 : 0.5)
+    targets.number(this.scatterStrength, 'value', night ? 0.85 : 1)
+    // 夜间邻居封面保持可读：光柱之外的印刷面不能压成黑块（对齐 demo 的货架观感）
+    targets.number(this.printAmbient, 'value', night ? 0.34 : 0.5)
     if (!transition) targets.finish()
   }
 
@@ -132,9 +133,10 @@ export class SelectionLighting {
         float lowerLight = mix(1.0, 0.62, panelHeight);
         float topRim = exp(-max(0.0, photoShellBounds.z - vPhotoLocal.y) * photoEdgeFalloff.y);
         float grazing = 1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0);
-        float edgeScatter = ${spine ? '0.30' : '0.14'} * edgeTransport + ${spine ? '0.016' : '0.003'};
+        // 全玻璃化：脊面与玻璃同档的柔和散射（原 0.30 的强暖散射是"金属边框"观感来源）
+        float edgeScatter = ${spine ? '0.16' : '0.12'} * edgeTransport + ${spine ? '0.006' : '0.003'};
         outgoingLight += photoScatterColor * photoScatterStrength * guidedLight * edgeScatter * lowerLight;
-        float ribbon = topRim * (0.22 + 0.78 * edgeTransport) + ${spine ? '0.18' : '0.035'} * edgeTransport * grazing;
+        float ribbon = topRim * (0.22 + 0.78 * edgeTransport) + ${spine ? '0.07' : '0.035'} * edgeTransport * grazing;
         outgoingLight += photoScatterColor * photoScatterStrength * laneLight * hotLight * ribbon * 0.8;
       ` : ''}
       #include <opaque_fragment>`

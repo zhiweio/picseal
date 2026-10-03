@@ -284,8 +284,8 @@
   letter-spacing: 3px;
 }
 
-/* 文字解密墨条：先遮盖，玻璃揭示后依次擦除（demo 原为纸质面板固定深墨 #20221d；
-   夜间若用亮色 --ink 会像白闪渲染错误，此处随主题取中性深色） */
+/* 文字墨条：面板入场的短促擦除（~0.7s），低对比中性色 ——
+   观感是"内容渐入"，不得像遮盖/渲染错误 */
 .doc-redaction-window {
   position: absolute;
   display: block;
@@ -298,11 +298,11 @@
   position: absolute;
   inset: 0;
   display: block;
-  background: #232722;
+  background: #dcd9d0;
   will-change: transform;
 }
 [data-theme='night'] .doc-redaction-ink {
-  background: #2c3a50;
+  background: #1c2739;
 }
 @media (prefers-reduced-motion: reduce) {
   .doc-redaction-window {

@@ -106,10 +106,6 @@ export function HeroWall() {
     (frame: DecryptionFrame, project: HudProjector) => {
       const svg = hudRef.current
       if (!svg) return
-      if (frame.clarity > 0 && !hudBeganRef.current) {
-        hudBeganRef.current = true
-        docDecryptRef.current?.begin()
-      }
       if (frame.phase === 'clear') trySeal()
       const scanPoint = (k: number) =>
         project(
@@ -214,7 +210,7 @@ export function HeroWall() {
     }
   }, [entries.length, applyHud]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── 详情卡文字解密：选中渲染后重置墨条，玻璃揭示时依次擦除 ── */
+  /* ── 详情卡文字：面板入场即快速擦除墨条（不等玻璃揭示，文字几乎立即可读） ── */
   useEffect(() => {
     if (selected === null) {
       docDecryptRef.current?.reset(null)
@@ -224,6 +220,7 @@ export function HeroWall() {
     const id = window.setTimeout(() => {
       hudBeganRef.current = false
       docDecryptRef.current?.reset(calloutRef.current)
+      docDecryptRef.current?.begin()
     }, 40)
     return () => window.clearTimeout(id)
   }, [selected])

@@ -1,7 +1,7 @@
 /**
- * DOM 文字解密 —— 移植自 Rhine-Music-Demo document-decryption.ts（MIT，© LBEILC / RonaldDeng）。
- * 详情卡文字先被"墨条"遮盖，玻璃揭示（clarity>0）后墨条依次擦除：
- * 先短暂加速、果断离场、长尾减速，无回弹。自驱 rAF，完成后自动清理。
+ * DOM 文字解密 —— 移植自 Rhine-Music-Demo document-decryption.ts（MIT，© LBEILC / RonaldDeng），
+ * 弱化为面板入场的短促擦除：详情卡出现即开始，~0.7s 内全部完成（不等玻璃揭示），
+ * 墨条为低对比中性色，观感是"内容渐入"而非遮盖。
  */
 
 interface Cover {
@@ -9,6 +9,10 @@ interface Cover {
   ink: HTMLElement
   order: number
 }
+
+/** 擦除进度时长 + 逐条延迟梯度 */
+const SWEEP_SECONDS = 0.5
+const STAGGER_SECONDS = 0.15
 
 export class DocumentDecryption {
   private root: HTMLElement | null = null
@@ -45,7 +49,7 @@ export class DocumentDecryption {
     this.paint()
   }
 
-  /** clarity>0 时调用一次；自带 0.95s 扫过 + 0.22s 逐条延迟梯度 */
+  /** 面板入场即调用（自驱 rAF）；重复调用幂等 */
   begin(): void {
     if (this.running || !this.root || this.progress === 1 || this.covers.length === 0) return
     this.running = true
@@ -54,7 +58,7 @@ export class DocumentDecryption {
       if (!this.running) return
       const now = performance.now() / 1000
       if (this.started !== null)
-        this.progress = Math.min(1, Math.max(0, (now - this.started) / 0.95))
+        this.progress = Math.min(1, Math.max(0, (now - this.started) / SWEEP_SECONDS))
       if (this.progress === 1) {
         this.remove()
         this.stop()
@@ -69,8 +73,8 @@ export class DocumentDecryption {
   private paint(): void {
     const count = Math.max(1, this.covers.length - 1)
     for (const cover of this.covers) {
-      const delay = (cover.order / count) * 0.22
-      const t = Math.min(1, Math.max(0, (this.progress - delay) / 0.78))
+      const delay = (cover.order / count) * STAGGER_SECONDS
+      const t = Math.min(1, Math.max(0, (this.progress * (SWEEP_SECONDS + STAGGER_SECONDS) - delay) / SWEEP_SECONDS))
       // 短暂加速、果断离场、长尾减速；无回弹
       const eased =
         t < 0.2 ? 0.4 * (t / 0.2) ** 2 : 1 - 0.6 * ((1 - t) / 0.8) ** (16 / 3)

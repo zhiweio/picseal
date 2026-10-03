@@ -54,7 +54,7 @@ export class CoverAtlas {
     texture.generateMipmaps = false
     texture.minFilter = THREE.LinearFilter
     texture.magFilter = THREE.LinearFilter
-    texture.anisotropy = 4
+    texture.anisotropy = 8
     texture.needsUpdate = true
     return { canvas, ctx, texture }
   }
