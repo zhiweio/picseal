@@ -72,6 +72,12 @@ export function HeroWall() {
   const [hasUserTrack, setHasUserTrack] = useState(false)
   const [webglFailed, setWebglFailed] = useState(false)
 
+  /** 水印成品（itemIndex → blob URL）：实演循环与焦点预取共同填充 */
+  const sealUrlsRef = useRef<Map<number, string>>(new Map())
+  /** 当前检视会话是否已盖章（玻璃揭示完成时置位） */
+  const sealedRef = useRef(false)
+  const selectedRef = useRef<number | null>(null)
+
   /* ── 样片清单（仅 manifest，秒级） ── */
   useEffect(() => {
     let cancelled = false
@@ -84,20 +90,33 @@ export function HeroWall() {
     }
   }, [])
 
+  /* ── 盖章：玻璃揭示完成后把印刷面替换为水印横幅成品 ── */
+  const trySeal = useCallback((): void => {
+    if (sealedRef.current) return
+    const index = selectedRef.current
+    if (index === null) return
+    const url = sealUrlsRef.current.get(index)
+    if (!url) return
+    sealedRef.current = true
+    sceneRef.current?.presentSeal(index, url)
+  }, [])
+
   /* ── 扫描 HUD：onDecryption 每帧以投影器驱动 SVG（无 React 参与） ── */
-  const applyHud = useCallback((frame: DecryptionFrame, project: HudProjector) => {
-    const svg = hudRef.current
-    if (!svg) return
-    if (frame.clarity > 0 && !hudBeganRef.current) {
-      hudBeganRef.current = true
-      docDecryptRef.current?.begin()
-    }
-    const scanPoint = (k: number) =>
-      project(
-        SCAN_FROM[0] + (SCAN_TO[0] - SCAN_FROM[0]) * k,
-        SCAN_FROM[1] + (SCAN_TO[1] - SCAN_FROM[1]) * k,
-        SCAN_Z
-      )
+  const applyHud = useCallback(
+    (frame: DecryptionFrame, project: HudProjector) => {
+      const svg = hudRef.current
+      if (!svg) return
+      if (frame.clarity > 0 && !hudBeganRef.current) {
+        hudBeganRef.current = true
+        docDecryptRef.current?.begin()
+      }
+      if (frame.phase === 'clear') trySeal()
+      const scanPoint = (k: number) =>
+        project(
+          SCAN_FROM[0] + (SCAN_TO[0] - SCAN_FROM[0]) * k,
+          SCAN_FROM[1] + (SCAN_TO[1] - SCAN_FROM[1]) * k,
+          SCAN_Z
+        )
     while (svg.firstChild) svg.removeChild(svg.firstChild)
     svg.style.display =
       frame.phase === 'clear' || frame.phase === 'waiting' ? 'none' : 'block'
@@ -146,7 +165,7 @@ export function HeroWall() {
       text.textContent = 'PICSEAL // DECRYPT'
       svg.append(text)
     }
-  }, [])
+  }, [trySeal])
 
   /* ── 场景构建（manifest 就绪即建；封面由场景自行流式填充） ── */
   useEffect(() => {
@@ -159,6 +178,8 @@ export function HeroWall() {
       quality: window.innerWidth < 900 || window.innerWidth * window.devicePixelRatio > 3200 ? 'performance' : 'high',
       onSelect: (index) => {
         setSelected(index)
+        selectedRef.current = index
+        if (index !== null) sealedRef.current = false
         if (index === null) transitionRef.current?.hide()
         else transitionRef.current?.show()
       },
@@ -188,6 +209,8 @@ export function HeroWall() {
       engineRef.current = null
       scene.dispose()
       sceneRef.current = null
+      for (const url of sealUrlsRef.current.values()) URL.revokeObjectURL(url)
+      sealUrlsRef.current.clear()
     }
   }, [entries.length, applyHud]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -236,7 +259,9 @@ export function HeroWall() {
           })
           if (cancelled) return
           if (rendered.ok && rendered.kind === 'preview') {
-            sceneRef.current.upgradeItem(index, URL.createObjectURL(rendered.blob))
+            // 一渲两用：墙面图集升级 + 检视盖章的水印成品缓存
+            sealUrlsRef.current.set(index, URL.createObjectURL(rendered.blob))
+            sceneRef.current.upgradeItem(index, sealUrlsRef.current.get(index)!)
           }
         } catch {
           /* 单张失败保留原图 */
@@ -260,6 +285,41 @@ export function HeroWall() {
         if (!cancelled) setMetaMap((prev) => new Map(prev).set(entry.id, meta))
       } catch {
         /* 读取失败保持占位 */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [browsed, entries, metaMap])
+
+  /* ── 焦点卡水印成品即时预取（盖章用；实演循环按序渲染太慢，等不到当前卡） ── */
+  useEffect(() => {
+    const index = browsed
+    const entry = entries[index]
+    if (!entry || !sceneRef.current || sealUrlsRef.current.has(index)) return
+    const meta = metaMap.get(entry.id)
+    if (!meta) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/samples/${entry.file}`)
+        const blob = await res.blob()
+        const pool = getRenderPool()
+        const template = {
+          ...BUILTIN_TEMPLATES[0]!,
+          typography: { ...BUILTIN_TEMPLATES[0]!.typography, scale: 1.35 }
+        }
+        const rendered = await pool.run({
+          kind: 'preview',
+          file: new File([blob], entry.file, { type: 'image/jpeg' }),
+          meta,
+          template,
+          maxLongEdge: 1024
+        })
+        if (!cancelled && rendered.ok && rendered.kind === 'preview')
+          sealUrlsRef.current.set(index, URL.createObjectURL(rendered.blob))
+      } catch {
+        /* 预取失败该卡不盖章（原图仍在） */
       }
     })()
     return () => {

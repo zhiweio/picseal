@@ -120,6 +120,8 @@ export function createHeroPrintMaterial(
 ): THREE.MeshLambertMaterial {
   const material = new THREE.MeshLambertMaterial({
     map,
+    // contain 装裱的透明边由此剔除，玻璃从照片四周透出（与墙面瓦片同观感）
+    alphaTest: 0.05,
     toneMapped: false,
     fog: true
   })

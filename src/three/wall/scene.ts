@@ -563,6 +563,34 @@ export class ArchiveWallScene {
     if (this.musicPresentation.holdsDetail) this.setMode('archive')
   }
 
+  /**
+   * 盖章归档：玻璃揭示完成后，把选中卡的印刷面替换为真实水印成品
+   * （banner 横幅预览，与墙面实演同源）。仍在检视且未换卡时生效。
+   */
+  presentSeal(itemIndex: number, url: string): void {
+    if (this.disposed || !this.loaded) return
+    if (this.selectedItem !== itemIndex || !this.musicPresentation.placed) return
+    void new THREE.TextureLoader()
+      .loadAsync(url)
+      .then((t) => {
+        if (this.disposed || this.selectedItem !== itemIndex || !this.musicPresentation.placed) {
+          t.dispose()
+          return
+        }
+        const fitted = this.fitPrintTexture(t)
+        this.heroTexture?.dispose()
+        this.heroTexture = fitted
+        const material = this.modelPrint?.material as THREE.MeshLambertMaterial | undefined
+        if (material) {
+          material.map = fitted
+          material.needsUpdate = true
+        }
+      })
+      .catch(() => {
+        /* 盖章失败保留原图 */
+      })
+  }
+
   select(itemIndex: number, cell: Cell): void {
     if (!this.loaded) return
     if (!this.musicPresentation.placed) this.musicNavigationLift = false
@@ -642,13 +670,12 @@ export class ArchiveWallScene {
           t.dispose()
           return
         }
-        t.colorSpace = THREE.SRGBColorSpace
-        t.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
+        const fitted = this.fitPrintTexture(t)
         this.heroTexture?.dispose()
-        this.heroTexture = t
+        this.heroTexture = fitted
         const material = this.modelPrint?.material as THREE.MeshLambertMaterial | undefined
         if (material) {
-          material.map = t
+          material.map = fitted
           material.needsUpdate = true
         }
       })
@@ -657,7 +684,34 @@ export class ArchiveWallScene {
       })
   }
 
-  /** 返回副本的印刷面快照：当前高清纹理定格为 canvas，交换所有权不闪断 */
+  /** contain 装裱：任意比例的照片/水印成品居中放入装裱窗，余量透明露出玻璃 */
+  private fitPrintTexture(t: THREE.Texture): THREE.Texture {
+    const image = t.image as ImageBitmap | HTMLImageElement | HTMLCanvasElement | undefined
+    if (!image || !image.width || !image.height) return t
+    const ar = image.width / image.height
+    const windowRatio = 3.72 / 2.88
+    const canvas = document.createElement('canvas')
+    canvas.width = 1440
+    canvas.height = Math.round(1440 / windowRatio)
+    const ctx = canvas.getContext('2d')!
+    let dw = canvas.width
+    let dh = canvas.height
+    if (ar > windowRatio) dh = dw / ar
+    else dw = dh * ar
+    try {
+      ctx.drawImage(image as CanvasImageSource, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh)
+    } catch {
+      /* 绘制失败返回原纹理（接受轻微拉伸） */
+      return t
+    }
+    const out = new THREE.CanvasTexture(canvas)
+    out.colorSpace = THREE.SRGBColorSpace
+    out.anisotropy = this.renderer.capabilities.getMaxAnisotropy()
+    t.dispose()
+    return out
+  }
+
+  /** 返回副本的印刷面快照：当前装裱结果定格为 canvas，交换所有权不闪断 */
   private snapshotPrint(print: THREE.Mesh): void {
     const source = print.material as THREE.MeshLambertMaterial
     const image = source.map?.image as ImageBitmap | HTMLImageElement | HTMLCanvasElement | undefined
@@ -665,15 +719,21 @@ export class ArchiveWallScene {
       print.material = new THREE.MeshBasicMaterial({ color: '#efeae2', toneMapped: false })
       return
     }
-    // 印刷窗 3.72 × 2.88
+    // 印刷窗 3.72 × 2.88，contain 装裱与 fitPrintTexture 同观感
     const canvas = document.createElement('canvas')
-    canvas.width = 512
-    canvas.height = Math.round(512 / (3.72 / 2.88))
+    canvas.width = 720
+    canvas.height = Math.round(720 / (3.72 / 2.88))
     const ctx = canvas.getContext('2d')!
     ctx.fillStyle = '#efeae2'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     try {
-      ctx.drawImage(image as CanvasImageSource, 0, 0, canvas.width, canvas.height)
+      const ar = (image.width || 1) / (image.height || 1)
+      const wr = 3.72 / 2.88
+      let dw = canvas.width
+      let dh = canvas.height
+      if (ar > wr) dh = dw / ar
+      else dw = dh * ar
+      ctx.drawImage(image as CanvasImageSource, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh)
     } catch {
       /* 绘制失败则留底色 */
     }
