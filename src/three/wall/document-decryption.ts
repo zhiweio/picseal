@@ -36,10 +36,7 @@ export class DocumentDecryption {
       const windowEl = document.createElement('span')
       windowEl.className = 'doc-redaction-window'
       windowEl.setAttribute('aria-hidden', 'true')
-      const rect = target.getBoundingClientRect()
-      const width = target.clientWidth || Math.round(rect.width)
-      const height = target.clientHeight || Math.round(rect.height)
-      windowEl.style.cssText = `left:0;top:0;width:${width}px;height:${height}px`
+      // 尺寸交给 CSS inset:0 跟随目标元素；元数据晚到改写文本时墨条仍对齐，不量死像素
       const ink = document.createElement('span')
       ink.className = 'doc-redaction-ink'
       windowEl.append(ink)

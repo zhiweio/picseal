@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { BUILTIN_TEMPLATES } from '@/core/templates/builtin'
 import type { OutputSettings, PhotoMeta, WatermarkTemplate } from '@/core/types'
-import { FontBook, LogoBook } from '@/core/render/canvas-utils'
+import { ensureResizeKernelReady, flushPicaDraws, FontBook, LogoBook, setResizeKernel } from '@/core/render/canvas-utils'
 import { renderPhoto } from '@/core/render'
 import { copyExif, type ImageType } from '@/core/exif/writer'
 import type { WorkerRequest, WorkerResponse } from './protocol'
@@ -46,8 +46,11 @@ async function handlePreview(
   file: File,
   meta: PhotoMeta,
   template: WatermarkTemplate,
-  maxLongEdge: number
+  maxLongEdge: number,
+  resizeKernel?: 'halving' | 'pica'
 ): Promise<void> {
+  setResizeKernel(resizeKernel ?? 'halving')
+  await ensureResizeKernelReady()
   const bitmap = await decode(file)
   const canvas = await renderPhoto({
     photo: bitmap,
@@ -58,6 +61,7 @@ async function handlePreview(
     options: { maxLongEdge, watermark: true }
   })
   bitmap.close()
+  await flushPicaDraws()
   // 预览用无损 PNG：JPEG 4:2:0 色度抽样会让文字边缘发糊/锯齿（对比 semi-utils quality95+4:4:4）
   const blob = await canvasToBlob(canvas, 'png')
   post({ id, ok: true, kind: 'preview', blob, width: canvas.width, height: canvas.height })
@@ -83,6 +87,8 @@ function outputName(
 
 async function handleExport(req: Extract<WorkerRequest, { kind: 'export' }>): Promise<void> {
   const { id, file, meta, template, settings } = req
+  setResizeKernel(req.resizeKernel ?? 'halving')
+  await ensureResizeKernelReady()
   const bitmap = await decode(file)
   const canvas = await renderPhoto({
     photo: bitmap,
@@ -93,6 +99,7 @@ async function handleExport(req: Extract<WorkerRequest, { kind: 'export' }>): Pr
     options: { maxLongEdge: settings.longEdge, watermark: true }
   })
   bitmap.close()
+  await flushPicaDraws()
 
   let blob = await canvasToBlob(canvas, settings.format, settings.quality)
   let filename = outputName(file, meta, settings, req.index)
@@ -124,7 +131,7 @@ self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
           await handleThumbnail(req.id, req.file, req.longEdge)
           break
         case 'preview':
-          await handlePreview(req.id, req.file, req.meta, req.template, req.maxLongEdge)
+          await handlePreview(req.id, req.file, req.meta, req.template, req.maxLongEdge, req.resizeKernel)
           break
         case 'export':
           await handleExport(req)

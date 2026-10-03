@@ -135,6 +135,39 @@ describe('buildTimeline', () => {
   })
 })
 
+describe('buildTimeline crossfade:0（放映室幻灯片硬切）', () => {
+  const photos = Array.from({ length: 16 }, (_, i) => photo(`p${i}`))
+  const tl = buildTimeline(photos, { introSeconds: 6, crossfade: 0 })
+
+  it('照片段零重叠：照片恰好首尾相接（硬切，照片完整放映）', () => {
+    const segs = tl.segments.filter((s) => s.kind === 'photo')
+    for (let i = 1; i < segs.length; i += 1) {
+      expect(segs[i]!.start).toBeCloseTo(segs[i - 1]!.start + segs[i - 1]!.duration, 10)
+    }
+  })
+
+  it('title→首张、末张→outro 同样零重叠', () => {
+    const title = tl.segments.find((s) => s.kind === 'title')!
+    const photoSegs = tl.segments.filter((s) => s.kind === 'photo')
+    const outro = tl.segments[tl.segments.length - 1]!
+    expect(outro.kind).toBe('outro')
+    expect(photoSegs[0]!.start).toBeCloseTo(title.start + title.duration, 10)
+    expect(outro.start).toBeCloseTo(
+      photoSegs[photoSegs.length - 1]!.start + photoSegs[photoSegs.length - 1]!.duration,
+      10
+    )
+  })
+
+  it('frameAt 恒单层满透明：段中部与换片瞬间都不出现溶解双层', () => {
+    const segs = tl.segments.filter((s) => s.kind === 'photo')
+    for (const probe of [segs[0]!.start + 2, segs[1]!.start, segs[1]!.start + 0.01, segs[1]!.start + 2]) {
+      const plan = frameAt(tl, probe)
+      expect(plan.layers).toHaveLength(1)
+      expect(plan.layers[0]!.alpha).toBe(1)
+    }
+  })
+})
+
 /* ───────────────────────── 取帧 ───────────────────────── */
 
 describe('frameAt', () => {

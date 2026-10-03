@@ -30,6 +30,33 @@ const WALL_CAPACITY = 432
 /** HUD 扫描线所在的卡面 z（印刷面前沿） */
 const SCAN_Z = CARD.depth / 2 + 0.03
 
+/** 详情卡等待元数据的上限：超时后允许占位内容上屏（弱网/解析失败兜底） */
+const PANEL_META_GRACE_MS = 600
+
+/** 元数据预取去重（进行中）与失败负缓存：404 样片不随 metaMap 更新被反复拉取 */
+const metaInFlight = new Map<string, Promise<PhotoMeta | null>>()
+const metaFailed = new Set<string>()
+
+async function fetchMeta(entry: SampleEntry): Promise<PhotoMeta | null> {
+  if (metaFailed.has(entry.id)) return null
+  let pending = metaInFlight.get(entry.id)
+  if (!pending) {
+    pending = (async () => {
+      try {
+        const res = await fetch(`/samples/${entry.file}`)
+        if (!res.ok) throw new Error(String(res.status))
+        return await readPhotoMeta(await res.blob())
+      } catch {
+        metaFailed.add(entry.id)
+        return null
+      }
+    })()
+    metaInFlight.set(entry.id, pending)
+    void pending.finally(() => metaInFlight.delete(entry.id)).catch(() => undefined)
+  }
+  return pending
+}
+
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
 interface SampleEntry {
@@ -69,6 +96,12 @@ export function HeroWall() {
   const [entries, setEntries] = useState<SampleEntry[]>([])
   const [metaMap, setMetaMap] = useState<Map<string, PhotoMeta>>(new Map())
   const [selected, setSelected] = useState<number | null>(null)
+  /** 悬停卡（桌面端提前预取详情卡元数据，让面板打开即完整） */
+  const [hovered, setHovered] = useState<number | null>(null)
+  /** 自选中起是否已过元数据宽限期（定时器只随 selected 重启，metaMap 高频更新不打断） */
+  const [metaGraceElapsed, setMetaGraceElapsed] = useState(false)
+  /** 详情卡已放行上屏；一旦打开保持到退出检视（快切不回退成空面板） */
+  const [panelOpen, setPanelOpen] = useState(false)
   const [browsed, setBrowsed] = useState(0)
   const [musicOn, setMusicOn] = useState(false)
   const [hasUserTrack, setHasUserTrack] = useState(false)
@@ -79,6 +112,8 @@ export function HeroWall() {
   /** 当前检视会话是否已盖章（玻璃揭示完成时置位） */
   const sealedRef = useRef(false)
   const selectedRef = useRef<number | null>(null)
+  /** 最近一次元数据就绪的检视内容（快切时暂留上屏，防占位闪跳） */
+  const lastReadyRef = useRef<{ index: number; entry: SampleEntry; meta: PhotoMeta } | null>(null)
 
   /* ── 样片清单（仅 manifest，秒级） ── */
   useEffect(() => {
@@ -178,10 +213,9 @@ export function HeroWall() {
         setSelected(index)
         selectedRef.current = index
         if (index !== null) sealedRef.current = false
-        if (index === null) transitionRef.current?.hide()
-        else transitionRef.current?.show()
       },
       onSelection: (index) => setBrowsed(index),
+      onHover: (index) => setHovered(index),
       onDecryption: applyHud
     })
     // WebGL 上下文创建失败（无 GPU/被禁用）时优雅降级为静态 hero，不炸整页
@@ -212,9 +246,41 @@ export function HeroWall() {
     }
   }, [entries.length, applyHud]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── 详情卡文字：面板入场即快速擦除墨条（不等玻璃揭示，文字几乎立即可读） ── */
+  /* ── 元数据宽限：自选中起计时，只随 selected 重启（水印循环的高频 metaMap
+     更新不得清掉重排定时器，否则慢加载卡的面板永远等不到放行）；
+     退出检视同步清零，避免下次打开吃到上一次的残留宽限 ── */
   useEffect(() => {
     if (selected === null) {
+      setMetaGraceElapsed(false)
+      return
+    }
+    setMetaGraceElapsed(false)
+    const id = window.setTimeout(() => setMetaGraceElapsed(true), PANEL_META_GRACE_MS)
+    return () => window.clearTimeout(id)
+  }, [selected])
+
+  /* ── 面板闸：元数据就绪或宽限过后才放行上屏（占位文本不再先跳出来）；
+     打开后保持到退出检视，检视间快切不回退成空面板 ── */
+  useEffect(() => {
+    if (selected === null) {
+      setPanelOpen(false)
+      return
+    }
+    if (panelOpen) return
+    const entry = entries[selected]
+    if (!entry) return
+    if (metaMap.has(entry.id) || metaGraceElapsed) setPanelOpen(true)
+  }, [selected, entries, metaMap, metaGraceElapsed, panelOpen])
+
+  /* ── 面板入场/退场跟随闸：show 推迟到内容完整时，空面板不再滑入 ── */
+  useEffect(() => {
+    if (selected === null) transitionRef.current?.hide()
+    else if (panelOpen) transitionRef.current?.show()
+  }, [selected, panelOpen])
+
+  /* ── 详情卡文字：面板入场即快速擦除墨条（不等玻璃揭示，文字几乎立即可读） ── */
+  useEffect(() => {
+    if (selected === null || !panelOpen) {
       docDecryptRef.current?.reset(null)
       hudBeganRef.current = false
       return
@@ -225,7 +291,7 @@ export function HeroWall() {
       docDecryptRef.current?.begin()
     }, 40)
     return () => window.clearTimeout(id)
-  }, [selected])
+  }, [selected, panelOpen])
 
   /* ── 水印实渲 → 原位升级墙面纹理；顺带缓存 EXIF（详情卡懒加载秒开） ── */
   useEffect(() => {
@@ -272,24 +338,29 @@ export function HeroWall() {
     }
   }, [entries.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── 浏览焦点卡元数据预取（未命中缓存时） ── */
+  /* ── 焦点/悬停卡元数据预取（未命中缓存时）：悬停即取，详情卡打开时多半已就绪；
+     404/解析失败的样片进负缓存，不随 metaMap 更新被反复拉取 ── */
   useEffect(() => {
-    const entry = entries[browsed]
-    if (!entry || metaMap.has(entry.id)) return
+    const indices = [...new Set([browsed, hovered].filter((i): i is number => i !== null))]
+    const pending = indices.filter((i) => {
+      const entry = entries[i]
+      return entry && !metaMap.has(entry.id) && !metaFailed.has(entry.id)
+    })
+    if (pending.length === 0) return
     let cancelled = false
     void (async () => {
-      try {
-        const res = await fetch(`/samples/${entry.file}`)
-        const meta = await readPhotoMeta(await res.blob())
-        if (!cancelled) setMetaMap((prev) => new Map(prev).set(entry.id, meta))
-      } catch {
-        /* 读取失败保持占位 */
+      for (const index of pending) {
+        if (cancelled) return
+        const entry = entries[index]!
+        const meta = await fetchMeta(entry)
+        if (!meta || cancelled) continue
+        setMetaMap((prev) => (prev.has(entry.id) ? prev : new Map(prev).set(entry.id, meta)))
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [browsed, entries, metaMap])
+  }, [browsed, hovered, entries, metaMap])
 
   /* ── 焦点卡水印成品即时预取（盖章用；实演循环按序渲染太慢，等不到当前卡） ── */
   useEffect(() => {
@@ -413,7 +484,24 @@ export function HeroWall() {
 
   const selectedEntry = selected !== null ? entries[selected] : undefined
   const selectedMeta = selectedEntry ? metaMap.get(selectedEntry.id) : undefined
-  const brand = selectedMeta ? matchBrand(selectedMeta.make, selectedMeta.model) : undefined
+
+  /* ── 检视间快切保持：新卡元数据未到（且未过宽限）时沿用上一张就绪内容，
+     避免占位文本闪现与高度跳变；元数据到达后随墨条重扫一次性换新 ── */
+  useEffect(() => {
+    if (selected === null) {
+      lastReadyRef.current = null
+      return
+    }
+    if (selectedEntry && selectedMeta)
+      lastReadyRef.current = { index: selected, entry: selectedEntry, meta: selectedMeta }
+  }, [selected, selectedEntry, selectedMeta])
+
+  const holdReady =
+    selectedEntry && !selectedMeta && !metaGraceElapsed ? lastReadyRef.current : null
+  const shownEntry = (selectedMeta ? selectedEntry : holdReady?.entry) ?? selectedEntry
+  const shownMeta = selectedMeta ?? holdReady?.meta
+  const shownIndex = selectedMeta ? selected : (holdReady?.index ?? selected)
+  const brand = shownMeta ? matchBrand(shownMeta.make, shownMeta.model) : undefined
 
   return (
     <div ref={containerRef} className="relative h-[86vh] min-h-[540px] w-full overflow-hidden border-b border-line">
@@ -483,27 +571,28 @@ export function HeroWall() {
         </label>
       </div>
 
-      {/* 详情档案卡：桌面右侧竖排，竖屏/紧凑为底部面板（跟随 data-layout） */}
+      {/* 详情档案卡：桌面右侧竖排，竖屏/紧凑为底部面板（跟随 data-layout）。
+          面板闸放行（panelOpen）才上屏：元数据未到时面板整体延后，而非占位先跳 */}
       <div className="wall-detail-anchor pointer-events-none z-20">
         <div ref={calloutRef} className="pointer-events-auto" style={{ visibility: 'hidden' }}>
-          {selectedEntry ? (
+          {shownEntry && panelOpen ? (
             <div className="detail-panel border border-line bg-panel p-4" style={{ boxShadow: 'var(--shadow-pop)' }}>
               <div className="rule-heavy flex items-baseline justify-between pb-2">
                 <span data-doc className="text-[11px] tracking-[2px] text-muted">
-                  FRAME {String((selected ?? 0) + 1).padStart(3, '0')}
+                  FRAME {String((shownIndex ?? 0) + 1).padStart(3, '0')}
                 </span>
                 <span data-doc className="text-[11px] text-muted">
-                  {brand?.name ?? selectedMeta?.make ?? '—'}
+                  {brand?.name ?? shownMeta?.make ?? '—'}
                 </span>
               </div>
               <p data-doc className="mt-2 text-[16px] font-semibold">
-                {selectedMeta?.modelPretty ?? '—'}
+                {shownMeta?.modelPretty ?? '—'}
               </p>
               <p data-doc className="mt-0.5 text-[12px] tabular-nums text-muted">
                 {[
-                  selectedMeta ? formatParams(selectedMeta) : undefined,
-                  selectedMeta?.dateTimeOriginal
-                    ? formatDate(selectedMeta.dateTimeOriginal)
+                  shownMeta ? formatParams(shownMeta) : undefined,
+                  shownMeta?.dateTimeOriginal
+                    ? formatDate(shownMeta.dateTimeOriginal)
                     : undefined
                 ]
                   .filter(Boolean)
@@ -529,7 +618,7 @@ export function HeroWall() {
         </div>
       </div>
 
-      {!selectedEntry ? (
+      {!(selectedEntry && panelOpen) ? (
         <p className="pointer-events-none absolute bottom-[calc(env(safe-area-inset-bottom,0px)+18px)] left-1/2 z-20 -translate-x-1/2 text-center text-[11px] tracking-[2px] text-muted">
           {t('landing.browsableHint').toUpperCase()}
         </p>

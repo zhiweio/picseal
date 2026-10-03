@@ -37,12 +37,14 @@ export function CinemaStage({
   const latestThumbsRef = useRef(stripThumbs)
 
   useEffect(() => {
-    if (!containerRef.current || !screenCanvas || sceneRef.current) return
-    let scene: CinemaScene | null = null
+    if (!containerRef.current || !screenCanvas) return
+    // StrictMode 双挂载竞态：cleanup 常在动态 import 解析前运行——
+    // 无取消位会连建两个场景，旧场景的 rAF 永远泄漏
+    let cancelled = false
     void (async () => {
       const { CinemaScene: Scene } = await import('@/three/cinema/scene')
-      if (!containerRef.current) return
-      scene = new Scene({
+      if (cancelled || !containerRef.current || sceneRef.current) return
+      const scene = new Scene({
         container: containerRef.current,
         screenCanvas,
         stripThumbs: [],
@@ -53,7 +55,6 @@ export function CinemaStage({
       })
       if (!scene.usable) {
         scene.dispose()
-        scene = null
         onSceneReady(null)
         return
       }
@@ -70,6 +71,7 @@ export function CinemaStage({
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 
     return () => {
+      cancelled = true
       themeObserver.disconnect()
       sceneRef.current?.dispose()
       sceneRef.current = null
@@ -91,7 +93,7 @@ export function CinemaStage({
   const frames = stripThumbs.length
 
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-[#04060b]">
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-[#07111f]">
       {/* 光圈开合入场（相机取景 × 放映厅） */}
       <div className="iris-shutter pointer-events-none absolute inset-0 z-30" aria-hidden />
 

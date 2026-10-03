@@ -74,6 +74,8 @@ export interface WallSceneOptions {
   onSelect: (index: number | null) => void
   /** 浏览焦点变化（元数据预取用，不驱动 DOM 卡显隐） */
   onSelection?: (index: number) => void
+  /** 悬停卡变化（null = 离开；桌面端用于提前预取详情卡元数据） */
+  onHover?: (index: number | null) => void
   /** 解密扫描 HUD 每帧驱动（仅在活跃相位调用） */
   onDecryption?: (frame: DecryptionFrame, project: HudProjector) => void
 }
@@ -187,6 +189,8 @@ export class ArchiveWallScene {
   private cursor = new THREE.Vector2(0, 0)
   private raycaster = new THREE.Raycaster()
   private hoveredCell: Cell | null = null
+  /** 已上报的悬停卡（去重，onHover 只在变化时触发） */
+  private hoverItem: number | null = null
   /** 指针跟随波：波心（格位连续值）与幅度，鼠标悬浮滑动时波浪追随指针 */
   private pointerRow: Spring = spring(0)
   private pointerLane: Spring = spring(0)
@@ -866,6 +870,7 @@ export class ArchiveWallScene {
         this.pointerAmpTarget = 1
       } else this.pointerAmpTarget = 0
       canvas.style.cursor = this.hoveredCell ? 'pointer' : 'default'
+      this.emitHover(this.hoveredCell)
     })
 
     on<PointerEvent>(canvas, 'pointerup', (e) => {
@@ -930,6 +935,7 @@ export class ArchiveWallScene {
       this.pointer.set(0, 0)
       this.hoveredCell = null
       this.pointerAmpTarget = 0
+      this.emitHover(null)
     })
 
     on<WheelEvent>(
@@ -979,6 +985,14 @@ export class ArchiveWallScene {
 
     this.resizeObserver = new ResizeObserver(() => this.resize())
     this.resizeObserver.observe(container)
+  }
+
+  /** 悬停卡变化上报（详情卡元数据预取用） */
+  private emitHover(cell: Cell | null): void {
+    const index = cell ? cell.item : null
+    if (index === this.hoverItem) return
+    this.hoverItem = index
+    this.opts.onHover?.(index)
   }
 
   private raycastCell(): Cell | null {

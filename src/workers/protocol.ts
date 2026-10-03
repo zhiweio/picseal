@@ -15,6 +15,8 @@ export type WorkerRequest =
       meta: PhotoMeta
       template: WatermarkTemplate
       maxLongEdge: number
+      /** 重采样内核（全局配置经主线程下发） */
+      resizeKernel?: 'halving' | 'pica'
     }
   | {
       id: string
@@ -27,6 +29,8 @@ export type WorkerRequest =
       /** 原始文件嗅探类型（EXIF 拷贝用），如 'jpeg' / 'heif' */
       sourceType: string
       index: number
+      /** 重采样内核（全局配置经主线程下发） */
+      resizeKernel?: 'halving' | 'pica'
     }
 
 /** worker → 主线程响应 */

@@ -339,7 +339,15 @@ blur.json 的文字槽位带 `trim: true`——**墨迹语义**：机型/参数�
 
 **实施**：`canvas-utils.drawImageSmoothed`（源反复半缩至 ≤2× 目标再落位，异常回退单步）；接入横幅行/雾面卡行/各 logo 绘制（logo 16× 缩小同样受益）；导出默认质量 0.92→0.96。预览保持无损 PNG + 2560。
 
-**验证**：与 `R2-standard1-faralign` 同倍率放大并排比对，笔画密度与边缘平滑度同量级（/tmp 对照图）；测试 104+ ✅。若后续仍觉不足，`drawImageSmoothed` 内核可单点替换为 pica Lanczos。：首验发现图注被渲染成黑色——R-05 的亮度自适应在亮背景上把橙(232,141,52)切成了深色。新增 `CornerStyle.contrastFix`（缺省开），图注模板设 `contrastFix: false` 保留品牌橙原样（semi normal2 源码即无条件橙色）；其余模板的自动对比度保障不受影响。实测橙色单行右下 ✓。
+**验证**：与 `R2-standard1-faralign` 同倍率放大并排比对，笔画密度与边缘平滑度同量级（/tmp 对照图）；测试 104+ ✅。若后续仍觉不足，`drawImageSmoothed` 内核可单点替换为 pica Lanczos。
+
+### 5.9 双重采样内核：pica 接入 + 全局配置切换（用户要求实测定默认）
+
+`drawImageSmoothed` 内核化：`ResizeKernel = 'halving' | 'pica'`，全局配置经 `localStorage['picseal-resize-kernel']`（主线程 `resize-kernel.ts` 实时读取）→ 渲染请求逐次下发（protocol preview/export 可选字段）→ worker `setResizeKernel` + `await ensureResizeKernelReady()`（动态 `import('pica')`，`createCanvas` 用 OffscreenCanvas，worker 安全）。
+
+**pica 异步落位竞态**：pica.resize 为 Promise，直接绘制会与 convertToBlob 竞态丢字——`picaDraws` pending 队列 + `flushPicaDraws()`，worker 转 blob 前 await。
+
+**A/B 实测**（nikon-z8 横幅三联：REF/HALVING/PICA，`post-fix/P25-ab-kernel-compare.jpg`）：两内核在同渲染尺度下**观感一致**——笔画密度、边缘平滑、logo 细节均达参照水准。**默认取 halving**（零依赖、同步确定性、无 WebGL 依赖；pica 为异步路径需 flush 防竞态），pica 经 `localStorage['picseal-resize-kernel']='pica'` 随时可选；`drawImageSmoothed` 接口已隔离，内核替换为单点改动。测试 107/107 ✅。：首验发现图注被渲染成黑色——R-05 的亮度自适应在亮背景上把橙(232,141,52)切成了深色。新增 `CornerStyle.contrastFix`（缺省开），图注模板设 `contrastFix: false` 保留品牌橙原样（semi normal2 源码即无条件橙色）；其余模板的自动对比度保障不受影响。实测橙色单行右下 ✓。
 
 ## 6. 环境与产物索引
 

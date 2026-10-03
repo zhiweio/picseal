@@ -50,6 +50,18 @@ export function drawCorner(
     subColor = ensureContrastColor(corner.subColor, luma)
   }
 
+  // 逐行走 InkBlock 墨迹位图（超采样+水平裁切+渐进半缩），fallback 直绘
+  const drawInkRow = (text: string, x: number, rowTop: number, inkH: number, weight: number, color: string) => {
+    const block = getInkBlock(family, weight, text, color)
+    if (block) {
+      const w = block.naturalW * (inkH / block.naturalH)
+      const bx = align === 'right' ? x - w : x
+      drawImageSmoothed(ctx, block.canvas, bx, rowTop, w, inkH)
+      return
+    }
+    drawInkText(ctx, text, x, rowTop, inkH, { family, weight, color }, align)
+  }
+
   if (shadow) {
     ctx.shadowColor = shadow.shadowColor
     ctx.shadowBlur = shadow.shadowBlur
@@ -59,9 +71,9 @@ export function drawCorner(
   lines.forEach((text, i) => {
     const weight = i === 0 && !corner.allSub ? mainWeight : subWeight
     const color = i === 0 ? mainColor : subColor
-    // 底线锚定：最末行行盒底 = height − insetY，向上逐行排
+    // 底线锚定：最末行墨迹底 = height − insetY，向上逐行排（行高 = 墨迹高）
     const lineBottom = height - insetY - (lines.length - 1 - i) * lineGap
-    drawInkText(ctx, text, anchorX, lineBottom - size, size, { family, weight, color }, align)
+    drawInkRow(text, anchorX, lineBottom - size, size, weight, color)
   })
 
   ctx.shadowColor = 'transparent'

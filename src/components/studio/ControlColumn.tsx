@@ -18,6 +18,7 @@ import type { FieldSlot, WatermarkTemplate } from '@/core/types'
 import { useSettings, type SavedPreset } from '@/stores/settings'
 import { usePhotos } from '@/stores/photos'
 import { getRenderPool } from '@/workers/pool'
+import { getResizeKernel } from '@/core/render/resize-kernel'
 import { renderMiniPreview, clearMiniCache } from '@/hooks/usePreview'
 import { saveBlob } from '@/lib/delivery'
 
@@ -601,7 +602,8 @@ function ExportPanel({ onOpenBatch }: { onOpenBatch: () => void }) {
         template,
         settings: output,
         sourceType: photo.sourceType ?? 'jpeg',
-        index: 0
+        index: 0,
+        resizeKernel: getResizeKernel()
       })
       if (res.ok && res.kind === 'export') saveBlob(res.blob, res.filename)
     } finally {

@@ -342,6 +342,7 @@
    观感是"内容渐入"，不得像遮盖/渲染错误 */
 .doc-redaction-window {
   position: absolute;
+  inset: 0;
   display: block;
   overflow: hidden;
   pointer-events: none;

@@ -502,7 +502,8 @@ export function drawImageSmoothed(
   dx: number,
   dy: number,
   dw: number,
-  dh: number
+  dh: number,
+  kernel: ResizeKernel = resizeKernel
 ): void {
   const sw = 'width' in src ? Number(src.width) : 0
   const sh = 'height' in src ? Number(src.height) : 0
@@ -513,28 +514,132 @@ export function drawImageSmoothed(
     ctx.drawImage(src, dx, dy, dw, dh)
     return
   }
-  try {
-    let cur: OffscreenCanvas | ImageBitmap = src
-    let cw = sw
-    let ch = sh
-    while (cw > dw * 2 && ch > dh * 2) {
-      const nw = Math.max(1, Math.floor(cw / 2))
-      const nh = Math.max(1, Math.floor(ch / 2))
-      const t = new OffscreenCanvas(nw, nh)
-      const tc = t.getContext('2d') as OffscreenCanvasRenderingContext2D | null
-      if (!tc) break
-      tc.imageSmoothingEnabled = true
-      tc.imageSmoothingQuality = 'high'
-      tc.drawImage(cur, 0, 0, nw, nh)
-      cur = t
-      cw = nw
-      ch = nh
+  // pica 仅用于 OffscreenCanvas 源（文字墨迹块）；ImageBitmap（logo）走渐进半缩——
+  // pica 在 worker 内对 ImageBitmap 源会失败，失败时也必须回退半缩而非丢弃绘制
+  const halving = (): void => {
+    try {
+      let cur: OffscreenCanvas | ImageBitmap = src
+      let cw = sw
+      let ch = sh
+      while (cw > dw * 2 && ch > dh * 2) {
+        const nw = Math.max(1, Math.floor(cw / 2))
+        const nh = Math.max(1, Math.floor(ch / 2))
+        const t = new OffscreenCanvas(nw, nh)
+        const tc = t.getContext('2d') as OffscreenCanvasRenderingContext2D | null
+        if (!tc) break
+        tc.imageSmoothingEnabled = true
+        tc.imageSmoothingQuality = 'high'
+        tc.drawImage(cur, 0, 0, nw, nh)
+        cur = t
+        cw = nw
+        ch = nh
+      }
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(cur, dx, dy, dw, dh)
+    } catch {
+      ctx.drawImage(src, dx, dy, dw, dh)
     }
-    ctx.imageSmoothingEnabled = true
-    ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(cur, dx, dy, dw, dh)
-  } catch {
-    ctx.drawImage(src, dx, dy, dw, dh)
+  }
+  if (kernel === 'pica' && !(src instanceof ImageBitmap)) {
+    // 异步绘制入 pending：调用方须 await flushPicaDraws() 后再转 blob（防竞态丢字）
+    const p = picaResize(src, dw, dh)
+      .then((out) => {
+        if (out) {
+          ctx.imageSmoothingEnabled = true
+          ctx.imageSmoothingQuality = 'high'
+          ctx.drawImage(out, dx, dy, dw, dh)
+        } else {
+          halving()
+        }
+      })
+      .catch(() => halving())
+    picaDraws.push(p)
+    p.finally(() => {
+      const i = picaDraws.indexOf(p)
+      if (i >= 0) picaDraws.splice(i, 1)
+    })
+    return
+  }
+  halving()
+}
+
+/* ───────────────────────── 重采样内核（halving | pica） ─────────────────────────
+ * halving：渐进半缩（每次恰 2× 高质量平均）——零依赖；
+ * pica：WebGL Lanczos（pica 库，最接近 Pillow LANCZOS）——惰性动态加载，
+ *       worker 内以 OffscreenCanvas 作为 createCanvas 工厂；
+ *       初始化失败自动回退 halving。
+ * 全局配置：主线程 localStorage → 渲染请求逐次下发（setResizeKernel）。
+ */
+export type ResizeKernel = 'halving' | 'pica'
+
+// 默认 pica：WebGL Lanczos + unsharp 锐化，观感对齐并超越 Pillow LANCZOS；初始化失败回退 halving
+let resizeKernel: ResizeKernel = 'pica'
+let picaInstance: {
+  resize: (
+    from: CanvasImageSource,
+    to: OffscreenCanvas,
+    opts?: { unsharpAmount?: number; unsharpRadius?: number; unsharpThreshold?: number }
+  ) => Promise<OffscreenCanvas>
+} | null | undefined
+
+export function setResizeKernel(k: ResizeKernel): void {
+  resizeKernel = k
+}
+
+export function getResizeKernel(): ResizeKernel {
+  return resizeKernel
+}
+
+/** kernel='pica' 时预热 pica 实例（惰性动态加载）；失败置 null 并回退 halving */
+const picaDraws: Promise<void>[] = []
+
+/** 等待所有进行中的 pica 异步落位（转 blob 前调用，防竞态丢字） */
+export async function flushPicaDraws(): Promise<void> {
+  if (picaDraws.length) await Promise.all(picaDraws)
+}
+
+/** kernel='pica' 时预热 pica 实例（惰性动态加载）；失败置 null 并回退 halving */
+export async function ensureResizeKernelReady(): Promise<void> {
+  if (resizeKernel !== 'pica' || picaInstance !== undefined) return
+  try {
+    const mod = await import('pica')
+    const create = (mod.default ?? mod) as unknown as (opts?: {
+      createCanvas: (w: number, h: number) => OffscreenCanvas
+    }) => {
+      resize: (
+        from: CanvasImageSource,
+        to: OffscreenCanvas,
+        opts?: { unsharpAmount?: number; unsharpRadius?: number; unsharpThreshold?: number }
+      ) => Promise<OffscreenCanvas>
+    }
+    picaInstance = create({
+      createCanvas: (w: number, h: number) => new OffscreenCanvas(w, h)
+    })
+  } catch (err) {
+    console.warn('[picseal] pica init failed, fallback to halving:', err)
+    picaInstance = null
+  }
+}
+
+async function picaResize(
+  src: OffscreenCanvas | ImageBitmap,
+  dw: number,
+  dh: number
+): Promise<OffscreenCanvas | null> {
+  await ensureResizeKernelReady()
+  if (!picaInstance) return null
+  try {
+    const target = new OffscreenCanvas(Math.max(1, Math.round(dw)), Math.max(1, Math.round(dh)))
+    // unsharp 轻锐化：补回缩小损失的边缘对比（对齐 LANCZOS 负瓣的锐利观感）
+    return await picaInstance.resize(src, target, {
+      unsharpAmount: 60,
+      unsharpRadius: 0.6,
+      unsharpThreshold: 2
+    })
+  } catch (err) {
+    console.warn('[picseal] pica resize failed, fallback to halving:', err)
+    return null
   }
 }
 

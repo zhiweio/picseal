@@ -8,6 +8,7 @@
  * 淡入淡出）与 MediaRecorder 封装。1920×1080 主画布同时是 3D 幕面纹理源 ——
  * 所见即所录。
  */
+import type { WatermarkTemplate } from '../types'
 import { formatDate, formatParams } from '../exif/reader'
 import { MARK_SYMBOL_FONT } from '../fonts/registry'
 import {
@@ -29,6 +30,7 @@ import {
   type CinemaTimeline,
   type TimelinePhoto
 } from './timeline'
+import { getRenderPool } from '../../workers/pool'
 
 export { CINEMA_WIDTH, CINEMA_HEIGHT }
 
@@ -61,6 +63,18 @@ export interface CinemaMedia {
   introDuration?: number
   /** 配乐 URL（缺省静默放映；调用方已按版权策略与用户开关解析） */
   musicUrl?: string
+}
+
+/** 装片选项：传入工作台模板即以"水印幻灯片"放映（完整作品 letterbox 上幕） */
+export interface EnginePrepareOptions {
+  template?: WatermarkTemplate | null
+}
+
+/** 预渲染的水印合成图（渲染池 preview 产物：PNG blob + 画幅） */
+interface WatermarkFrame {
+  blob: Blob
+  width: number
+  height: number
 }
 
 export type EngineState = 'idle' | 'running' | 'done'
@@ -119,6 +133,9 @@ export class CinemaEngine {
   private videoSource: MediaElementAudioSourceNode | null = null
   private bitmaps = new Map<string, ImageBitmap>()
   private bitmapOrder: string[] = []
+  /** 水印幻灯片模式：照片以完整作品 contain 内接上幕（无 Ken Burns/字幕/转场） */
+  private watermarkMode = false
+  private watermarks = new Map<string, WatermarkFrame>()
   private frame = 0
   private t0 = 0
   private recorder: MediaRecorder | null = null
@@ -142,12 +159,26 @@ export class CinemaEngine {
 
   /**
    * 组装时间轴与字体。开场视频的时长以 <video> 元数据实测为准（探测值可能有出入）。
-   * 返回实际使用的开场秒数（0 = 无素材）。
+   * 传入模板时先经渲染池预渲染每张的水印合成图（幻灯片语义：完整作品 letterbox、
+   * 硬切换片、无 Ken Burns/字幕）。返回实际使用的开场秒数（0 = 无素材）。
    */
-  async prepare(photos: EnginePhotoInput[], texts: CinemaTexts, media: CinemaMedia): Promise<number> {
+  async prepare(
+    photos: EnginePhotoInput[],
+    texts: CinemaTexts,
+    media: CinemaMedia,
+    options?: EnginePrepareOptions
+  ): Promise<number> {
     await this.fonts.ensureFamily('misans', true)
     await this.fonts.ensureFamily('archivo', false)
     await this.fonts.ensureUrl(MARK_SYMBOL_FONT.cssName, MARK_SYMBOL_FONT.file)
+
+    // 画面源可能从原片切到水印合成（或反向）：旧缓存位图全部失效
+    for (const bmp of this.bitmaps.values()) bmp.close()
+    this.bitmaps.clear()
+    this.bitmapOrder = []
+    this.watermarks.clear()
+    this.watermarkMode = Boolean(options?.template)
+    if (options?.template) await this.prerenderWatermarks(photos, options.template)
 
     let introSeconds = 0
     if (media.introUrl) {
@@ -158,7 +189,8 @@ export class CinemaEngine {
 
     this.photos = photos
     this.texts = texts
-    this.timeline = buildTimeline(toTimelinePhotos(photos, texts), { introSeconds })
+    // crossfade 0 = 幻灯片硬切（照片段零重叠，frameAt 恒单层）
+    this.timeline = buildTimeline(toTimelinePhotos(photos, texts), { introSeconds, crossfade: 0 })
 
     if (media.musicUrl) {
       this.musicBuffer = await this.decodeMusic(media.musicUrl)
@@ -167,6 +199,31 @@ export class CinemaEngine {
     }
     this.paintIdle()
     return introSeconds
+  }
+
+  /** 渲染池按片预渲染水印合成图；单张失败回退原片路径（帧语义不变） */
+  private async prerenderWatermarks(photos: EnginePhotoInput[], template: WatermarkTemplate): Promise<void> {
+    const pool = getRenderPool()
+    const results = await Promise.allSettled(
+      photos.map((photo) =>
+        pool.run({
+          kind: 'preview',
+          file: photo.file,
+          meta: photo.meta ?? {},
+          template,
+          maxLongEdge: CINEMA_WIDTH
+        })
+      )
+    )
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value.ok && result.value.kind === 'preview') {
+        this.watermarks.set(photos[index]!.id, {
+          blob: result.value.blob,
+          width: result.value.width,
+          height: result.value.height
+        })
+      }
+    })
   }
 
   private async loadVideo(url: string): Promise<HTMLVideoElement> {
@@ -310,6 +367,7 @@ export class CinemaEngine {
     for (const bmp of this.bitmaps.values()) bmp.close()
     this.bitmaps.clear()
     this.bitmapOrder = []
+    this.watermarks.clear()
     this.video?.removeAttribute('src')
     this.video?.load()
     this.video = null
@@ -356,10 +414,18 @@ export class CinemaEngine {
         ctx.drawImage(this.video, 0, 0, CINEMA_WIDTH, CINEMA_HEIGHT)
       } else if (seg.kind === 'photo') {
         const bmp = this.bitmapFor(seg.photo.id, seg.index)
-        if (bmp && layer.kb) {
+        if (!bmp) continue
+        ctx.globalAlpha = layer.alpha
+        if (this.watermarkMode) {
+          // 水印幻灯片：完整作品 contain 内接（横幅/装裱完整可见，两侧影院遮幅）
+          const scale = Math.min(CINEMA_WIDTH / bmp.width, CINEMA_HEIGHT / bmp.height)
+          const w = bmp.width * scale
+          const h = bmp.height * scale
+          ctx.drawImage(bmp, (CINEMA_WIDTH - w) / 2, (CINEMA_HEIGHT - h) / 2, w, h)
+        } else if (layer.kb) {
           const crop = coverCropRect(bmp.width, bmp.height, CINEMA_WIDTH, CINEMA_HEIGHT, layer.kb.zoom, layer.kb.panX, layer.kb.panY)
-          ctx.globalAlpha = layer.alpha
           ctx.drawImage(bmp, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, CINEMA_WIDTH, CINEMA_HEIGHT)
+          // 水印模式字幕条停用：横幅已承载型号/参数叙事
           if (layer.captionAlpha > 0.01 && layer.alpha >= 0.999 && seg.photo.caption) {
             this.drawCaption(seg.photo.caption, layer.captionAlpha)
           }
@@ -414,19 +480,9 @@ export class CinemaEngine {
   private async decodePhoto(photo: EnginePhotoInput): Promise<void> {
     if (this.bitmaps.has(photo.id)) return
     try {
-      const { width, height } = photo.meta ?? {}
-      let bmp: ImageBitmap
-      if (width && height && Math.max(width, height) > DECODE_LONG_EDGE) {
-        const scale = DECODE_LONG_EDGE / Math.max(width, height)
-        bmp = await createImageBitmap(photo.file, {
-          imageOrientation: 'from-image',
-          resizeWidth: Math.max(1, Math.round(width * scale)),
-          resizeHeight: Math.max(1, Math.round(height * scale)),
-          resizeQuality: 'high'
-        })
-      } else {
-        bmp = await createImageBitmap(photo.file, { imageOrientation: 'from-image' })
-      }
+      // 水印合成图直接解码（PNG 已是正向位；横幅随图完整）
+      const wm = this.watermarks.get(photo.id)
+      const bmp = wm ? await createImageBitmap(wm.blob) : await this.decodeRawPhoto(photo)
       if (this.bitmaps.has(photo.id)) {
         bmp.close()
         return
@@ -443,6 +499,21 @@ export class CinemaEngine {
     } catch {
       /* 解码失败：该段黑场过渡，不中断放映 */
     }
+  }
+
+  /** 原片路径：EXIF 正向解码 + 超长边降采样 */
+  private async decodeRawPhoto(photo: EnginePhotoInput): Promise<ImageBitmap> {
+    const { width, height } = photo.meta ?? {}
+    if (width && height && Math.max(width, height) > DECODE_LONG_EDGE) {
+      const scale = DECODE_LONG_EDGE / Math.max(width, height)
+      return createImageBitmap(photo.file, {
+        imageOrientation: 'from-image',
+        resizeWidth: Math.max(1, Math.round(width * scale)),
+        resizeHeight: Math.max(1, Math.round(height * scale)),
+        resizeQuality: 'high'
+      })
+    }
+    return createImageBitmap(photo.file, { imageOrientation: 'from-image' })
   }
 
   /* ───────────────────────── 卡片与字幕（薄绘制层） ───────────────────────── */

@@ -5,6 +5,7 @@ import type { WatermarkTemplate } from '@/core/types'
 import type { PhotoItem } from '@/stores/photos'
 import { BlobUrlCache } from '@/lib/preview-cache'
 import { getRenderPool } from '@/workers/pool'
+import { getResizeKernel } from '@/core/render/resize-kernel'
 
 export interface PreviewResult {
   url: string
@@ -68,7 +69,8 @@ export function usePreview(
           file: photo.file,
           meta: photo.meta ?? {},
           template,
-          maxLongEdge
+          maxLongEdge,
+          resizeKernel: getResizeKernel()
         })
         .then((res) => {
           if (gen !== generation.current) return // 过期结果丢弃
