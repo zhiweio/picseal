@@ -198,8 +198,12 @@
       "musicFallback": "Score · CC0 fallback (Komiku)",
       "loadIntro": "Load opening clip",
       "loadMusic": "Load score",
+      "on": "ON",
+      "off": "OFF",
+      "introDisabled": "Opening clip disabled",
+      "musicDisabled": "Score disabled · silent screening",
       "credit": "Credits",
-      "creditNote": "Copyrighted tracks never ship with the repo; stored only in your browser.",
+      "creditNote": "Media sourced from the web, demo only. All rights belong to their owners — contact us for removal.",
       "loaded": "Media loaded"
     },
     "picker": {
@@ -215,7 +219,8 @@
     "film": {
       "titleMain": "Collection",
       "titleSub": "A PHOTO COLLECTION",
-      "outroMain": "FIN"
+      "outroMain": "FIN",
+      "endCredit": "Created with PICSEAL"
     },
     "empty": {
       "title": "Load the reel",

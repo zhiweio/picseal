@@ -42,10 +42,12 @@ export class FontBook {
     const buf = await res.arrayBuffer()
     const face = new FontFace(cssName, buf, { weight: String(weight) })
     await face.load()
-    // worker 的 FontFaceSet 在 globalThis.fonts；主线程在 document.fonts（放映室引擎首次在主线程消费 FontBook）
+    // worker 的 FontFaceSet 在 globalThis.fonts；主线程必须用 document.fonts
+    // （canvas 只认它——某些环境存在非标准 globalThis.fonts 注入，优先序不能反，
+    // 否则字体注册进了不可见集合，主线程全部文字衬线回退）
     const fonts =
-      (globalThis as unknown as { fonts?: FontFaceSet }).fonts ??
-      (typeof document !== 'undefined' ? document.fonts : undefined)
+      (typeof document !== 'undefined' ? document.fonts : undefined) ??
+      (globalThis as unknown as { fonts?: FontFaceSet }).fonts
     if (!fonts) throw new Error('no FontFaceSet in this context')
     fonts.add(face)
     this.loaded.add(key)

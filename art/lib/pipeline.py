@@ -46,7 +46,7 @@ def material(name: str, color, transmission: float = 0, roughness: float = 0.4, 
     return mat
 
 
-def box(name: str, center, dimensions, mat, bevel: float = 0.018):
+def box(name: str, center, dimensions, mat, bevel: float = 0.018, segments: int = 2):
     """以 three.js 坐标 (x, y, z) 与尺寸 (宽, 高, 厚) 直接建块。"""
     x, y, z = center
     w, h, d = dimensions
@@ -58,7 +58,7 @@ def box(name: str, center, dimensions, mat, bevel: float = 0.018):
     obj.data.materials.append(mat)
     mod = obj.modifiers.new("Small manufactured edge", "BEVEL")
     mod.width = bevel
-    mod.segments = 2
+    mod.segments = segments
     bpy.ops.object.modifier_apply(modifier=mod.name)
     for p in obj.data.polygons:
         p.use_smooth = True

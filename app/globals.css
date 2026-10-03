@@ -124,6 +124,8 @@
   --color-veil: var(--veil);
   --color-ok: var(--ok);
   --color-stage: var(--stage);
+  /* 放映室特例：尼康品牌红（双主题同值，仅 Z 符号与放映指示使用，见 DESIGN.md） */
+  --color-nikon: #e01f26;
 
   --font-sans: 'MiSans', -apple-system, 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei',
     system-ui, sans-serif;
@@ -131,6 +133,58 @@
   --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --ease-theme: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 尼康 Z 专用字形（DOM 入口按钮用；水印渲染侧经 FontBook 加载同一文件） */
+@font-face {
+  font-family: 'Picseal NikonZSymbol';
+  src: url('/fonts/wm/special-alphabets-p04.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+005A, U+007A;
+}
+
+/* ── 放映室：光圈开合入场（相机取景 × 放映厅） ── */
+@property --iris-r {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+.iris-shutter {
+  /* 六叶光圈的叶片拼接感：重复锥形渐变做叶片明暗，mask 挖出渐大的通光孔 */
+  background: repeating-conic-gradient(
+    from 8deg,
+    #04060b 0deg 52deg,
+    #0a101c 52deg 60deg
+  );
+  -webkit-mask: radial-gradient(circle at 50% 52%, transparent var(--iris-r), black calc(var(--iris-r) + 2%));
+  mask: radial-gradient(circle at 50% 52%, transparent var(--iris-r), black calc(var(--iris-r) + 2%));
+  animation:
+    iris-open 2.1s var(--ease-enter) forwards,
+    iris-spin 2.1s var(--ease-enter) forwards;
+}
+@keyframes iris-open {
+  from {
+    --iris-r: 0%;
+  }
+  to {
+    --iris-r: 100%;
+  }
+}
+@keyframes iris-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(14deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .iris-shutter {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /* 主题切换时对变量插值 —— 由 ThemeToggle 短暂挂载 */

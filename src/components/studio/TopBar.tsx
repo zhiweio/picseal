@@ -2,18 +2,26 @@
 
 import { useTranslations } from 'next-intl'
 import { Github } from 'lucide-react'
+import clsx from 'clsx'
 import { BigCount } from '@/components/ui/primitives'
 import { LangToggle, ThemeToggle } from '@/components/Toggles'
+import { NikonZMark } from '@/components/ui/NikonZMark'
+import { Tooltip } from '@/components/ui/Tooltip'
+import { CINEMA_MIN_PHOTOS } from '@/core/cinema/timeline'
+import { useRouter } from '@/i18n/navigation'
 import { usePhotos } from '@/stores/photos'
 import { useQueue, queueSummary } from '@/stores/queue'
 
 export function TopBar({ onOpenBatch }: { onOpenBatch: () => void }) {
   const t = useTranslations('studio')
   const tr = useTranslations()
+  const router = useRouter()
   const items = usePhotos((s) => s.items)
   const frames = useQueue((s) => s.frames)
   const summary = queueSummary(frames)
   const doneBytes = frames.reduce((sum, f) => sum + (f.resultSize ?? 0), 0)
+
+  const cinemaReady = items.length >= CINEMA_MIN_PHOTOS
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
@@ -48,6 +56,34 @@ export function TopBar({ onOpenBatch }: { onOpenBatch: () => void }) {
           >
             <Github size={13} />
           </a>
+          <Tooltip
+            label={
+              cinemaReady
+                ? tr('cinema.entryHint')
+                : tr('cinema.needMore', { count: CINEMA_MIN_PHOTOS - items.length })
+            }
+            side="bottom"
+          >
+            <button
+              type="button"
+              onClick={() => router.push('/cinema')}
+              disabled={!cinemaReady}
+              title={
+                cinemaReady
+                  ? tr('cinema.entryHint')
+                  : tr('cinema.needMore', { count: CINEMA_MIN_PHOTOS - items.length })
+              }
+              className={clsx(
+                'flex h-[26px] items-center gap-1.5 border px-2.5 text-[11px] font-medium tracking-[1px] transition-all disabled:cursor-not-allowed disabled:opacity-40',
+                cinemaReady
+                  ? 'border-nikon/60 text-ink hover:border-nikon hover:shadow-[0_0_12px_rgba(224,31,38,0.35)]'
+                  : 'border-line text-muted'
+              )}
+            >
+              <NikonZMark className="text-[13px]" />
+              <span className="hidden sm:inline">{tr('cinema.title')}</span>
+            </button>
+          </Tooltip>
           <button
             type="button"
             onClick={onOpenBatch}

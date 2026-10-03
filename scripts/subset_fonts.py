@@ -46,6 +46,8 @@ def gb2312_unicodes() -> list[str]:
 
 def main() -> None:
     cjk_codes = ",".join(gb2312_unicodes())
+    # 四个字重都产出 CJK 子集：注册表 misans 300（Light）也声明了 cjk 映射
+    cjk_weights = ("Light", "Regular", "Demibold", "Bold")
     for weight_name, _ in WEIGHTS.items():
         src = os.path.join(FONT_DIR, f"MiSans-{weight_name}.woff2")
         if not os.path.exists(src):
@@ -66,7 +68,7 @@ def main() -> None:
             check=True,
         )
 
-        if weight_name in ("Regular", "Demibold", "Bold"):
+        if weight_name in cjk_weights:
             cjk_out = os.path.join(FONT_DIR, "wm", f"MiSans-{weight_name}-cjk.woff2")
             os.makedirs(os.path.dirname(cjk_out), exist_ok=True)
             subprocess.run(

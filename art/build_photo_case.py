@@ -38,18 +38,20 @@ plate_cx = (plate_x0 + plate_x1) / 2
 plate_cy = (plate_y0 + plate_y1) / 2
 
 # 前盖板：正面与外壳齐平（z = +D/2），磨砂主表面
-box("Frosted front cover", (plate_cx, plate_cy, D / 2 - FRONT_T / 2), (plate_w, plate_h, FRONT_T), frost, 0.015)
+# 倒角加宽 + 3 段：圆润的玻璃棱边在任何光下都能拉出连续细亮线
+# （真实亚克力相框的圆边光——放映机光路下玻璃"通透感"的几何基础）
+box("Frosted front cover", (plate_cx, plate_cy, D / 2 - FRONT_T / 2), (plate_w, plate_h, FRONT_T), frost, 0.02, segments=3)
 # 后扩散板：背面与外壳齐平
-box("Plain rear shell", (plate_cx, plate_cy, -D / 2 + REAR_T / 2), (plate_w, plate_h, REAR_T), back, 0.017)
+box("Plain rear shell", (plate_cx, plate_cy, -D / 2 + REAR_T / 2), (plate_w, plate_h, REAR_T), back, 0.02, segments=3)
 # 左连续书脊（全高全厚）
-box("Continuous left spine", (x_left + SPINE / 2, CY, 0), (SPINE, H, D), edge, 0.022)
+box("Continuous left spine", (x_left + SPINE / 2, CY, 0), (SPINE, H, D), edge, 0.03, segments=3)
 # 上/下/右三边框（厚度内缩 0.01）
 for name, center, size in [
     ("Top rim", (plate_cx, y_top - RIM / 2, 0), (plate_w, RIM, D - 0.02)),
     ("Bottom rim", (plate_cx, y_bottom + RIM / 2, 0), (plate_w, RIM, D - 0.02)),
     ("Right rim", (x_right - RIM / 2, plate_cy, 0), (RIM, plate_h, D - 0.02)),
 ]:
-    box(name, center, size, edge, 0.012)
+    box(name, center, size, edge, 0.02, segments=3)
 
 merge_by_material(scene, "Photo_Case", "photoCaseShell")
 

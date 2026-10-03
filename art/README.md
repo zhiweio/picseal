@@ -9,6 +9,10 @@
 # 生成/更新照片档案卡（存 .blend + 导出 GLB + 生成 src/three/wall/asset.ts 指纹引用）
 blender --background --python art/build_photo_case.py
 
+# 归一化外部 Eumig 放映机模型（默认 ~/Downloads/eumig_film_projector.glb，EUMIG_SRC 可覆盖；
+# 缩放 6× 居中 + 部件改名对齐旋转钩子 + 保留 PBR → GLB + src/three/cinema/asset.ts 指纹）
+PICSEAL_REVIEW=1 blender --background --python art/prepare_projector_glb.py
+
 # 审查渲染（出 PNG 供视觉对照，不随发布分发）
 blender --background --python art/review_studio.py
 ```
@@ -27,7 +31,9 @@ blender --background --python art/review_studio.py
 
 - `lib/pipeline.py`：共享管线库（`material` / `box` / `merge_by_material` / `export`）。
 - `build_photo_case.py`：照片档案卡 —— 磨砂前盖板 + 后扩散板 + 左连续书脊 + 上/下/右三边框；外廓 4.45 × 3.35 × 0.14。
+- `prepare_projector_glb.py`：**当前生效** —— 消费外部高精 Eumig 放映机模型（PBR 扫描件，25,559 顶点/17 部件/3 材质 4 贴图）：保留层级与原始材质，包一层 `EumigProjector` 统一缩放 6× + 几何居中；`Reel.001→ReelSupply`、`Reel.002→ReelTakeup`、`Focusing_Knob→FocusRing` 改名对齐运行时旋转钩子（盘轴沿 X）。⚠️ 模型来源为用户下载（`~/Downloads/eumig_film_projector.glb`），**发布前需核实其许可证**（Sketchfab/Poly Haven 等 CC 许可通常可再分发，需署名）。
+- `build_projector.py`：程序化建模的备选方案（十材质词汇/微细节密度的自制放映机）—— 已被 Eumig 模型取代，保留作为无外部依赖的回退。
 - `review_studio.py`：三灯棚拍审查渲染（Cycles）。
-- `photo-case.blend`：生成产物；`review/`：审查 PNG（gitignore）。
+- `photo-case.blend` / `eumig-projector.blend`：生成产物；`review/`：审查 PNG（gitignore）。
 
 新增模型：复制 `build_photo_case.py` 的结构，调 `box()` 序列与材质表，复用 `lib/pipeline.py` 与 `export()`。

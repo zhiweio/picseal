@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Volume2, VolumeX, Music4, Upload } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
+import { NikonZMark } from '@/components/ui/NikonZMark'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { ArchiveWallScene, type HudProjector } from '@/three/wall/scene'
 import { SurfaceTransition } from '@/three/wall/surface-transition'
 import { DocumentDecryption } from '@/three/wall/document-decryption'
@@ -444,6 +446,19 @@ export function HeroWall() {
 
       {/* 音乐控制（右上）：默认开启，可关闭；支持载入自备音源 */}
       <div className="absolute right-6 top-6 z-20 flex items-center gap-2">
+        {/* 放映室入口：尼康 Z 红标，悬浮 tooltip + 红晕 */}
+        <Tooltip label={t('cinema.entryHint')} side="bottom">
+          <Link
+            href="/cinema"
+            title={t('cinema.entryHint')}
+            className="group flex min-h-[44px] items-center gap-1.5 border border-nikon/50 bg-panel/80 px-2.5 text-[10px] tracking-[1px] text-ink backdrop-blur-sm transition-all hover:border-nikon hover:shadow-[0_0_14px_rgba(224,31,38,0.35)]"
+          >
+            <NikonZMark className="text-[13px] transition-transform duration-300 group-hover:rotate-[8deg] group-hover:scale-110" />
+            <span className="hidden text-muted transition-colors group-hover:text-ink sm:inline">
+              {t('cinema.title')}
+            </span>
+          </Link>
+        </Tooltip>
         <button
           type="button"
           onClick={() => void startMusic()}

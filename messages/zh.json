@@ -198,8 +198,12 @@
       "musicFallback": "配乐 · CC0 回退（Komiku）",
       "loadIntro": "载入开场视频",
       "loadMusic": "载入配乐",
+      "on": "开",
+      "off": "关",
+      "introDisabled": "开场片段已停用",
+      "musicDisabled": "配乐已停用 · 静默放映",
       "credit": "版权说明",
-      "creditNote": "版权曲目不入库，仅存本机浏览器。",
+      "creditNote": "素材来自网络，仅作演示，版权归原作者所有，侵删。",
       "loaded": "素材已载入"
     },
     "picker": {
@@ -215,7 +219,8 @@
     "film": {
       "titleMain": "作品集",
       "titleSub": "A PHOTO COLLECTION",
-      "outroMain": "FIN"
+      "outroMain": "FIN",
+      "endCredit": "PICSEAL 创作"
     },
     "empty": {
       "title": "装片开始",
