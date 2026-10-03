@@ -14,7 +14,8 @@ RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm build
+# standalone 输出仅镜像构建需要，与 next.config.ts 的 BUILD_STANDALONE 开关对应
+RUN BUILD_STANDALONE=1 pnpm build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
