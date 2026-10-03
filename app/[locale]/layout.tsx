@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { notFound } from 'next/navigation'
 import { NextIntlClientProvider } from 'next-intl'
 import { setRequestLocale, getMessages } from 'next-intl/server'
+import { ThemeProvider } from 'next-themes'
 import { routing } from '@/i18n/routing'
 import '../globals.css'
 
@@ -19,8 +20,6 @@ export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }))
 }
 
-const THEME_INIT = `(function(){try{var t=localStorage.getItem('picseal-theme');if(!t){t=window.matchMedia('(prefers-color-scheme: day)').matches?'day':'night'}document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme='night'}})()`
-
 export default async function LocaleLayout({
   children,
   params
@@ -36,7 +35,6 @@ export default async function LocaleLayout({
   return (
     <html lang={locale} data-theme="night" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
         <link
           rel="preload"
           href="/fonts/MiSans-Regular-latin.woff2"
@@ -53,7 +51,15 @@ export default async function LocaleLayout({
         />
       </head>
       <body>
-        <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>
+        <ThemeProvider
+          attribute="data-theme"
+          themes={['night', 'day']}
+          defaultTheme="night"
+          enableSystem={false}
+          storageKey="picseal-theme"
+        >
+          <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

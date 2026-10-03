@@ -14,6 +14,7 @@ import { saveBlob } from '@/lib/delivery'
 import { resolveCinemaMedia, saveUserMedia, CINEMA_MEDIA_KEYS, type ResolvedCinemaMedia } from '@/lib/cinema-assets'
 import { usePhotos } from '@/stores/photos'
 import { useSettings } from '@/stores/settings'
+import { usePreferences } from '@/stores/preferences'
 import { renderMiniPreview } from '@/hooks/usePreview'
 import { getRenderPool } from '@/workers/pool'
 import { BigCount, Panel, StatusDot, TermButton } from '@/components/ui/primitives'
@@ -23,23 +24,6 @@ import { PhotoPicker } from './PhotoPicker'
 const CinemaStage = dynamic(() => import('./CinemaStage').then((m) => m.CinemaStage), { ssr: false })
 
 type Phase = 'idle' | 'preparing' | 'running' | 'done'
-
-/** 片头/配乐启用开关（localStorage 持久化，默认均启用） */
-type MediaToggles = { intro: boolean; music: boolean }
-const MEDIA_TOGGLES_KEY = 'picseal-cinema-media'
-
-function loadMediaToggles(): MediaToggles {
-  try {
-    const raw = window.localStorage.getItem(MEDIA_TOGGLES_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<MediaToggles>
-      return { intro: parsed.intro ?? true, music: parsed.music ?? true }
-    }
-  } catch {
-    /* private mode */
-  }
-  return { intro: true, music: true }
-}
 
 /** 放映室：把工作台照片剪成一部作品集电影（开场素材 + 配乐 + Ken Burns 蒙太奇） */
 export function Cinema() {
@@ -53,7 +37,9 @@ export function Cinema() {
   const [status, setStatus] = useState<PlaybackStatus | null>(null)
   const [result, setResult] = useState<PlaybackResult | null>(null)
   const [media, setMedia] = useState<ResolvedCinemaMedia | null>(null)
-  const [mediaToggles, setMediaToggles] = useState<MediaToggles>({ intro: true, music: true })
+  /** 片头/配乐启用开关（preferences store 持久化，默认均启用） */
+  const mediaToggles = usePreferences((s) => s.cinemaMedia)
+  const toggleMedia = usePreferences((s) => s.toggleCinemaMedia)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [picked, setPicked] = useState<string[] | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -156,7 +142,6 @@ export function Cinema() {
       }
       ;(window as unknown as { __cinemaDebug?: unknown }).__cinemaDebug = debugApi
     }
-    setMediaToggles(loadMediaToggles())
     void resolveCinemaMedia().then((m) => {
       mediaUrlsRef.current = m.objectUrls
       setMedia(m)
@@ -366,18 +351,6 @@ export function Cinema() {
     },
     [t]
   )
-
-  const toggleMedia = useCallback((key: 'intro' | 'music') => {
-    setMediaToggles((prev) => {
-      const next = { ...prev, [key]: !prev[key] }
-      try {
-        window.localStorage.setItem(MEDIA_TOGGLES_KEY, JSON.stringify(next))
-      } catch {
-        /* private mode */
-      }
-      return next
-    })
-  }, [])
 
   useEffect(() => {
     if (!notice) return

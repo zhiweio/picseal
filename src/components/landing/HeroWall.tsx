@@ -12,6 +12,7 @@ import { DocumentDecryption } from '@/three/wall/document-decryption'
 import { SCAN_CORNERS, SCAN_FROM, SCAN_TO, type DecryptionFrame } from '@/three/wall/decryption'
 import { CARD } from '@/three/wall/card'
 import { BeatEngine, loadUserTrack, saveUserTrack } from '@/three/audio/beat'
+import { usePreferences } from '@/stores/preferences'
 import { readPhotoMeta, formatParams, formatDate } from '@/core/exif/reader'
 import { BUILTIN_TEMPLATES } from '@/core/templates/builtin'
 import { matchBrand } from '@/core/brands'
@@ -428,11 +429,7 @@ export function HeroWall() {
     try {
       const playing = await engineRef.current.toggle()
       setMusicOn(playing)
-      try {
-        localStorage.setItem('picseal-music', playing ? 'on' : 'off')
-      } catch {
-        /* private mode */
-      }
+      usePreferences.getState().setMusicPref(playing)
       return playing
     } catch {
       return false
@@ -442,14 +439,7 @@ export function HeroWall() {
   // 默认开启：首个手势（滚轮/点击/按键）自动起播（浏览器自动播放策略）
   useEffect(() => {
     let armed = true
-    const pref = (() => {
-      try {
-        return localStorage.getItem('picseal-music') ?? 'on'
-      } catch {
-        return 'on'
-      }
-    })()
-    if (pref !== 'on') {
+    if (!usePreferences.getState().musicPref) {
       setMusicOn(false)
       return
     }

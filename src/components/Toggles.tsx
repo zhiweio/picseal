@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useTheme } from 'next-themes'
 import { useLocale } from 'next-intl'
 import clsx from 'clsx'
 import { usePathname, useRouter } from '@/i18n/navigation'
@@ -8,22 +9,16 @@ import { usePathname, useRouter } from '@/i18n/navigation'
 type Theme = 'night' | 'day'
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>('night')
+  const { theme, setTheme } = useTheme()
+  /** 首帧与 SSR 输出对齐（高亮夜），挂载后校正为已存主题，避免水合告警 */
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
-  useEffect(() => {
-    const current = (document.documentElement.dataset.theme as Theme | undefined) ?? 'night'
-    setTheme(current)
-  }, [])
+  const current: Theme = mounted && theme === 'day' ? 'day' : 'night'
 
   const apply = (next: Theme) => {
     const root = document.documentElement
     root.classList.add('theme-anim')
-    root.dataset.theme = next
-    try {
-      localStorage.setItem('picseal-theme', next)
-    } catch {
-      /* private mode */
-    }
     setTheme(next)
     window.setTimeout(() => root.classList.remove('theme-anim'), 700)
   }
@@ -38,7 +33,7 @@ export function ThemeToggle() {
           className={clsx(
             'px-2.5 py-1 text-[11px] transition-colors',
             i > 0 && 'border-l border-line',
-            theme === t ? 'bg-ink text-page' : 'text-muted hover:text-ink'
+            current === t ? 'bg-ink text-page' : 'text-muted hover:text-ink'
           )}
         >
           {t === 'night' ? '夜' : '昼'}

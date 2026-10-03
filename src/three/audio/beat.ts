@@ -3,9 +3,11 @@
  * WebAudio AnalyserNode → 低频能量包络 + 谱通量 onset 检测（拍手/鼓点），
  * 输出 {level, onBeat} 供 3D 波场耦合。对任意曲目生效（含用户自备音源）。
  *
- * 自动播放策略：需在用户手势后 start()；默认开启偏好持久化到 localStorage。
+ * 自动播放策略：需在用户手势后 start()；默认开启偏好持久化到 preferences store。
  * 用户自备音源（如 Radical Face《Welcome Home, Son》）存 IndexedDB，仅本地。
  */
+
+import { createStore, del, get, set, type UseStore } from 'idb-keyval'
 
 export interface BeatEngineOptions {
   /** 默认内置曲目 URL */
@@ -163,51 +165,24 @@ export class BeatEngine {
   }
 }
 
-/* ── 用户自备音源持久化（IndexedDB，仅本地） ── */
+/* ── 用户自备音源持久化（IndexedDB via idb-keyval，仅本地；DB/Store 名沿用旧版，老数据免迁移） ── */
 
-const DB_NAME = 'picseal-audio'
-const STORE = 'track'
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1)
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore(STORE)
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+let trackStore: UseStore | undefined
+/** 懒创建：client 模块在 SSR 也会求值，避免服务端触碰 indexedDB */
+function userTrackStore(): UseStore {
+  trackStore ??= createStore('picseal-audio', 'track')
+  return trackStore
 }
 
 export async function saveUserTrack(blob: Blob): Promise<void> {
-  const db = await openDb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite')
-    tx.objectStore(STORE).put(blob, 'user')
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
-  db.close()
+  await set('user', blob, userTrackStore())
 }
 
 export async function loadUserTrack(): Promise<Blob | null> {
-  const db = await openDb()
-  const blob = await new Promise<Blob | null>((resolve, reject) => {
-    const req = db.transaction(STORE, 'readonly').objectStore(STORE).get('user')
-    req.onsuccess = () => resolve((req.result as Blob | undefined) ?? null)
-    req.onerror = () => reject(req.error)
-  })
-  db.close()
-  return blob
+  const blob = await get('user', userTrackStore())
+  return blob instanceof Blob ? blob : null
 }
 
 export async function clearUserTrack(): Promise<void> {
-  const db = await openDb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite')
-    tx.objectStore(STORE).delete('user')
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
-  db.close()
+  await del('user', userTrackStore())
 }

@@ -125,6 +125,9 @@ export const useSettings = create<SettingsState>()(
     }),
     {
       name: 'picseal-settings',
+      /** 存量信封为 version 0；后续 schema 演进在此按版本迁移，merge 仍做最终校验 */
+      version: 1,
+      migrate: (persisted) => persisted,
       partialize: (state) => ({
         output: state.output,
         presets: state.presets

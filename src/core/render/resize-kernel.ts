@@ -1,27 +1,17 @@
 /**
  * 重采样内核全局配置（主线程）——"渐进半缩"与 "pica Lanczos" 双内核自由切换。
- * 经 localStorage 持久化；worker 侧通过渲染请求逐次下发（worker 无 localStorage）。
- * 实时读取：切换后下一次渲染即生效，无需刷新。
+ * 持久化收敛到 preferences store（picseal-prefs，zustand persist）；本模块保留
+ * 过程式 API：预览/导出等非 React 调用点以 getState 即时读取，worker 侧通过
+ * 渲染请求逐次下发（worker 无 localStorage）。实时读取：切换后下一次渲染即生效。
  */
-export type ResizeKernel = 'halving' | 'pica'
+import { usePreferences, type ResizeKernel } from '@/stores/preferences'
 
-const KEY = 'picseal-resize-kernel'
-const VALID: ResizeKernel[] = ['halving', 'pica']
+export type { ResizeKernel }
 
 export function getResizeKernel(): ResizeKernel {
-  try {
-    const v = globalThis.localStorage?.getItem(KEY) as ResizeKernel | null
-    if (v && VALID.includes(v)) return v
-  } catch {
-    /* localStorage 不可用（隐私模式等） */
-  }
-  return 'pica'
+  return usePreferences.getState().resizeKernel
 }
 
 export function setResizeKernel(k: ResizeKernel): void {
-  try {
-    globalThis.localStorage?.setItem(KEY, k)
-  } catch {
-    /* 忽略 */
-  }
+  usePreferences.getState().setResizeKernel(k)
 }

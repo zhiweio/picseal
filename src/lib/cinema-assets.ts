@@ -1,5 +1,7 @@
 'use client'
 
+import { createStore, get, set, type UseStore } from 'idb-keyval'
+
 /**
  * 放映室媒体解析 —— 三级来源：
  * ① 浏览器 IndexedDB 的用户导入（「载入本地素材」，仅存本地）
@@ -16,37 +18,24 @@ export const CINEMA_MEDIA_KEYS = {
   music: 'music'
 } as const
 
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1)
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE)) request.result.createObjectStore(STORE)
-    }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
+let mediaStore: UseStore | undefined
+/** 懒创建：client 模块在 SSR 也会求值，避免服务端触碰 indexedDB；DB/Store 名沿用旧版，老数据免迁移 */
+function userMediaStore(): UseStore {
+  mediaStore ??= createStore(DB_NAME, STORE)
+  return mediaStore
 }
 
 export async function loadUserMedia(key: string): Promise<Blob | undefined> {
   try {
-    const db = await openDb()
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readonly').objectStore(STORE).get(key)
-      tx.onsuccess = () => resolve(tx.result instanceof Blob ? tx.result : undefined)
-      tx.onerror = () => reject(tx.error)
-    })
+    const blob = await get(key, userMediaStore())
+    return blob instanceof Blob ? blob : undefined
   } catch {
     return undefined
   }
 }
 
 export async function saveUserMedia(key: string, blob: Blob): Promise<void> {
-  const db = await openDb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite').objectStore(STORE).put(blob, key)
-    tx.onsuccess = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
+  await set(key, blob, userMediaStore())
 }
 
 async function urlExists(url: string): Promise<boolean> {

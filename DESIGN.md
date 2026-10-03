@@ -98,6 +98,14 @@
 
 内存纪律：主线程仅持 File 句柄 + 320px 缩略图 + EXIF 摘要；预览降采样 LRU（键 `photoId+configHash`）；输出 Blob 磁盘后端 + ZIP 流式边压边产，峰值 ≈ 单张。
 
+## 客户端持久化（无后端，全部本地；零裸用 localStorage）
+
+- **应用状态**（水印预设 + 输出设置）：zustand `persist` 中间件 → `localStorage['picseal-settings']`（version+migrate、zod 校验 merge，坏数据静默回默认）
+- **用户偏好**（音乐自动起播 / 放映室片头配乐开关 / 重采样内核）：zustand `persist` → `localStorage['picseal-prefs']`（收编原 `picseal-music`、`picseal-cinema-media`、`picseal-resize-kernel` 三个散装 key，首次加载自动迁移并清理）
+- **主题**（夜/昼）：next-themes → `localStorage['picseal-theme']`（`data-theme` attribute，自带无闪烁内联脚本与跨标签页同步）
+- **大文件 Blob**（用户自备音源、放映室导入素材）：idb-keyval → IndexedDB（KV 语义；DB/Store 沿用 `picseal-audio.track`、`picseal-cinema.media`，老数据免迁移）
+- 照片本体**永不持久化**（内存纪律见上）；隐私模式下各库自动容错回默认值
+
 ## 水印渲染引擎（`src/core/`，纯 TS 零 DOM）
 
 - `exif/`：exifr pick 快路径 + 时间长回退链（DateTimeOriginal → CreateDate → …），数据缺失显示 `-` 而非假数据
