@@ -38,6 +38,8 @@
       "chooseFiles": "选择照片",
       "chooseFolder": "选择文件夹",
       "chooseZip": "选择压缩包",
+      "addPhotos": "添加照片",
+      "appended": "已添加 {count} 张照片",
       "parsed": "已解析 {count} 张",
       "parsing": "正在解析压缩包…",
       "zipTooLarge": "压缩包超过 2 GB，建议分批导入",

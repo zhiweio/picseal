@@ -43,7 +43,12 @@ export function Studio() {
           setNotice(`${zip.name}: parse failed`)
         }
       }
-      if (images.length > 0) await addFiles(images)
+      if (images.length > 0) {
+        const appending = usePhotos.getState().items.length > 0
+        const { added } = await addFiles(images)
+        // 追加到已有队列时给出反馈；首次导入画面本身切换到工作台，无需提示
+        if (appending && added > 0) setNotice(t('import.appended', { count: added }))
+      }
     },
     [addFiles, t]
   )
@@ -112,7 +117,13 @@ export function Studio() {
       <TopBar onOpenBatch={() => setRunOpen(true)} />
 
       <div className="flex min-h-0 flex-1">
-        {items.length > 0 ? <FilmStrip /> : null}
+        {items.length > 0 ? (
+          <FilmStrip
+            onPickFiles={() => fileInputRef.current?.click()}
+            onPickFolder={() => folderInputRef.current?.click()}
+            onPickZip={() => zipInputRef.current?.click()}
+          />
+        ) : null}
         {items.length > 0 ? (
           <>
             <Stage />

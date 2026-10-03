@@ -38,6 +38,8 @@
       "chooseFiles": "Choose photos",
       "chooseFolder": "Choose folder",
       "chooseZip": "Choose archive",
+      "addPhotos": "Add photos",
+      "appended": "Added {count} photos",
       "parsed": "Parsed {count} frames",
       "parsing": "Parsing archive…",
       "zipTooLarge": "Archive exceeds 2 GB, consider splitting the import",

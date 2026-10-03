@@ -1,15 +1,24 @@
 'use client'
 
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
-import { Pin } from 'lucide-react'
+import { FileArchive, FolderOpen, ImagePlus, Pin, Plus } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { usePhotos, type PhotoItem } from '@/stores/photos'
 import { StatusDot } from '@/components/ui/primitives'
 
-/** 左侧刻度尺胶片条：缩略图轨 + tick 导航 + 队列状态灯 + 样片别针 */
-export function FilmStrip() {
+/** 左侧刻度尺胶片条：添加入口 + 缩略图轨 + tick 导航 + 队列状态灯 + 样片别针 */
+export function FilmStrip({
+  onPickFiles,
+  onPickFolder,
+  onPickZip
+}: {
+  onPickFiles: () => void
+  onPickFolder: () => void
+  onPickZip: () => void
+}) {
   const t = useTranslations('studio')
   const items = usePhotos((s) => s.items)
   const currentId = usePhotos((s) => s.currentId)
@@ -25,6 +34,26 @@ export function FilmStrip() {
     overscan: 8
   })
 
+  const [addOpen, setAddOpen] = useState(false)
+  const addRef = useRef<HTMLDivElement>(null)
+
+  // 点击外部 / Escape 关闭添加菜单
+  useEffect(() => {
+    if (!addOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (addRef.current && !addRef.current.contains(e.target as Node)) setAddOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAddOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [addOpen])
+
   const currentIndex = items.findIndex((p) => p.id === currentId)
 
   return (
@@ -34,6 +63,64 @@ export function FilmStrip() {
         <span className="text-[10px] tabular-nums text-muted">
           {String(items.length).padStart(3, '0')}
         </span>
+      </div>
+
+      {/* 追加照片入口：固定在轨道顶部，不随列表滚动 */}
+      <div ref={addRef} className="relative border-b border-line">
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={addOpen}
+          aria-label={t('import.addPhotos')}
+          title={t('import.addPhotos')}
+          onClick={() => setAddOpen((v) => !v)}
+          className="group flex h-16 w-full items-center px-2 transition-colors hover:bg-ink/5"
+        >
+          <span
+            className={clsx(
+              'flex h-12 w-full items-center justify-center gap-1.5 border border-dashed transition-colors',
+              addOpen
+                ? 'border-accent text-accent'
+                : 'border-line text-muted group-hover:border-accent group-hover:text-accent'
+            )}
+          >
+            <Plus size={13} />
+            <span className="hud-label text-[9px]">ADD</span>
+          </span>
+        </button>
+
+        {addOpen ? (
+          <div
+            role="menu"
+            aria-label={t('import.addPhotos')}
+            className="absolute left-2 top-full z-30 mt-1 min-w-[160px] border border-line bg-panel py-1 shadow-[var(--shadow-pop)]"
+          >
+            <AddMenuItem
+              icon={ImagePlus}
+              label={t('import.chooseFiles')}
+              onClick={() => {
+                setAddOpen(false)
+                onPickFiles()
+              }}
+            />
+            <AddMenuItem
+              icon={FolderOpen}
+              label={t('import.chooseFolder')}
+              onClick={() => {
+                setAddOpen(false)
+                onPickFolder()
+              }}
+            />
+            <AddMenuItem
+              icon={FileArchive}
+              label={t('import.chooseZip')}
+              onClick={() => {
+                setAddOpen(false)
+                onPickZip()
+              }}
+            />
+          </div>
+        ) : null}
       </div>
 
       {currentIndex >= 5 ? (
@@ -77,6 +164,28 @@ export function FilmStrip() {
         </div>
       </div>
     </aside>
+  )
+}
+
+function AddMenuItem({
+  icon: Icon,
+  label,
+  onClick
+}: {
+  icon: LucideIcon
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-ink transition-colors hover:bg-ink/5"
+    >
+      <Icon size={13} className="shrink-0 text-muted" />
+      {label}
+    </button>
   )
 }
 
