@@ -1,11 +1,11 @@
 'use client'
 
 /**
- * 放映室版权媒体解析 —— 三级来源：
+ * 放映室媒体解析 —— 三级来源：
  * ① 浏览器 IndexedDB 的用户导入（「载入本地素材」，仅存本地）
- * ② 本机 public/cinema/ 下的 gitignored 文件（HEAD 探测；开源部署不存在）
+ * ② 仓库自带的 public/cinema/ 素材（来自网络，仅作演示，侵删；HEAD 探测）
  * ③ CC0 回退：开场跳过、配乐用落地页 bgm.mp3
- * 详见 public/cinema/CREDITS.md（商业版权，不随仓库分发）。
+ * 详见 public/cinema/CREDITS.md。
  */
 
 const DB_NAME = 'picseal-cinema'

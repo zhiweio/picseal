@@ -1,24 +1,28 @@
 # 放映室媒体 / Projection Room Media
 
-放映室的开场片段与配乐为**商业版权作品，不随开源仓库分发**（本目录下的 `intro.mp4`、`welcome-home.m4a` 已被 `.gitignore` 排除，仅存在于你自己的机器上）。
+本目录下的 `intro.mp4`（开场片段）与 `welcome-home.m4a`（配乐）**来自网络，仅用于产品演示，版权归原作者所有**。如有侵权请联系（提 issue 即可），确认后立即删除。
 
-## 获取完整体验（本地一次配置）
+`intro.mp4` (opening clip) and `welcome-home.m4a` (soundtrack) in this directory are **sourced from the web for demo purposes only; all rights remain with their original owners**. If anything here infringes your rights, open an issue and it will be removed promptly.
 
-将自己拥有的素材放入本目录（或放映室内「载入本地素材」导入，存于浏览器 IndexedDB）：
-
-```bash
-# 开场：白日梦想家片段（1920×1080 H.264 + AAC，faststart）
-ffmpeg -i "<你的素材>.mp4" -c:v libx264 -crf 22 -preset slow -pix_fmt yuv420p \
-  -c:a aac -b:a 128k -movflags +faststart public/cinema/intro.mp4
-
-# 配乐：Radical Face — Welcome Home（FLAC → AAC 192k，-vn 丢弃内嵌封面）
-ffmpeg -i "Radical Face - Welcome Home.flac" -vn -c:a aac -b:a 192k public/cinema/welcome-home.m4a
-```
-
-## 版权归属
+## 版权归属 / Copyright
 
 - 开场片段：*The Secret Life of Walter Mitty*（2013）© 20th Century Fox，影迷剪辑
 - 配乐：*Welcome Home* — Radical Face © Bear Tree Records
+
+## 自备素材替换（可选 / Optional）
+
+想用自己的素材时，转成同样规格放回本目录即可：
+
+```bash
+# 开场：1920×1080 H.264 + AAC，faststart
+ffmpeg -i "<你的素材>.mp4" -c:v libx264 -crf 22 -preset slow -pix_fmt yuv420p \
+  -c:a aac -b:a 128k -movflags +faststart public/cinema/intro.mp4
+
+# 配乐：AAC 192k，-vn 丢弃内嵌封面
+ffmpeg -i "<你的音频>.flac" -vn -c:a aac -b:a 192k public/cinema/welcome-home.m4a
+```
+
+也可以在放映室内「载入本地素材」直接导入，仅存于浏览器 IndexedDB。
 
 ## 无素材时的回退
 

@@ -42,7 +42,3 @@ tsconfig.tsbuildinfo
 # blender review renders（审查 PNG 不随发布分发，参考项目同款边界）
 art/review/
 art/lib/__pycache__/
-
-# 放映室版权媒体（商业版权，仅本机体验，不入库不分发；说明见 public/cinema/CREDITS.md）
-public/cinema/*.mp4
-public/cinema/*.m4a
