@@ -9,7 +9,8 @@
     "about": "About",
     "github": "Source",
     "theme": "Theme",
-    "language": "Language"
+    "language": "Language",
+    "cinema": "Projection"
   },
   "landing": {
     "entry": "Open Studio",
@@ -67,7 +68,10 @@
       "gps": "Location",
       "logo": "Mark",
       "custom": "Custom text",
-      "show": "Show"
+      "show": "Show",
+      "missing": "Missing fields",
+      "missingDash": "Show '-'",
+      "missingHide": "Hide"
     },
     "appearance": {
       "label": "Appearance",
@@ -76,7 +80,12 @@
       "cornerRadius": "Radius",
       "shadow": "Shadow",
       "margin": "Margin",
-      "canvasColor": "Canvas",
+      "canvasColor": "Mount",
+      "bannerColor": "Banner",
+      "bannerHeight": "Banner height",
+      "rightAlign": "Right column",
+      "rightAlignNear": "Near",
+      "rightAlignFar": "Spread",
       "aspectRatio": "Aspect",
       "aspectOriginal": "Original",
       "font": "Font"
@@ -152,14 +161,73 @@
       "day": "Day"
     }
   },
-  "templates": {
-    "mi-classic": {
-      "name": "Classic Banner",
-      "nameEn": "CLASSIC BANNER"
+  "cinema": {
+    "title": "Projection",
+    "titleEn": "PROJECTION ROOM",
+    "back": "Back to studio",
+    "entryHint": "Turn your shots into a film / MAKE A FILM",
+    "needMore": "{count} more to go · keep shooting",
+    "needMoreEn": "KEEP SHOOTING",
+    "needMoreLong": "{count} more photos before the reel can roll. Great films deserve a few more shutter clicks — keep going.",
+    "overLimit": "For the best pacing, up to {max} photos join the cut (pre-selected evenly by capture time — adjust as you like)",
+    "preview": "Preview screening",
+    "record": "Render & download",
+    "stop": "Stop",
+    "recording": "Screening & recording · keep this tab in the foreground until the progress line completes",
+    "done": "Film ready",
+    "downloadAgain": "Download again",
+    "formatNote": "This browser cannot record MP4; fell back to WebM (remux with a converter if needed)",
+    "pick": "Select photos",
+    "projection": {
+      "label": "Projection",
+      "labelEn": "PROJECTION",
+      "frames": "{count} frames loaded"
     },
-    "banner-pro": {
-      "name": "Standard Banner",
-      "nameEn": "STANDARD BANNER"
+    "reel": {
+      "label": "Reel",
+      "labelEn": "REEL",
+      "count": "{count} in stock",
+      "reset": "Reset selection"
+    },
+    "media": {
+      "label": "Media",
+      "labelEn": "MEDIA",
+      "introReady": "Opening clip · Walter Mitty (local)",
+      "introMissing": "Opening clip missing · will skip",
+      "musicMain": "Score · Radical Face — Welcome Home (local)",
+      "musicFallback": "Score · CC0 fallback (Komiku)",
+      "loadIntro": "Load opening clip",
+      "loadMusic": "Load score",
+      "credit": "Credits",
+      "creditNote": "Copyrighted tracks never ship with the repo; stored only in your browser.",
+      "loaded": "Media loaded"
+    },
+    "picker": {
+      "label": "Select",
+      "labelEn": "SELECT FRAMES",
+      "count": "{count} / {max}",
+      "hint": "Pick {min}-{max} photos for the cut; pre-selection samples evenly by capture time",
+      "close": "Close",
+      "cancel": "Cancel",
+      "confirm": "Confirm {count}",
+      "orderNote": "The film plays in capture-time order"
+    },
+    "film": {
+      "titleMain": "Collection",
+      "titleSub": "A PHOTO COLLECTION",
+      "outroMain": "FIN"
+    },
+    "empty": {
+      "title": "Load the reel",
+      "hint": "Drop or pick {min}+ photos, add the opening clip and score, and cut a collection film",
+      "pick": "Choose photos",
+      "drop": "or drop photos onto this page"
+    }
+  },
+  "templates": {
+    "banner": {
+      "name": "Banner",
+      "nameEn": "BANNER"
     },
     "card-shadow": {
       "name": "Mounted Card",

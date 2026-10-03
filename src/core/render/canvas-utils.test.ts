@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { measureInk, type Ctx2D } from './canvas-utils'
+import {
+  applyCaps,
+  drawInkText,
+  ensureContrastColor,
+  markSegments,
+  measureInk,
+  type Ctx2D
+} from './canvas-utils'
 
 /**
  * 模拟 Canvas 度量：字体行盒固定（fontBoundingBox 与字符串无关），
@@ -43,10 +50,15 @@ describe('measureInk（字体行盒定字号）', () => {
     expect(dash.fontPx).toBeLessThan(200)
   })
 
-  it('fontPx 由行盒高线性反推', () => {
+  it('fontPx 由行盒高线性反推（M2：INK_FILTER 1.45 → 1.38 减重）', () => {
     const m = measureInk(ctx, 'AB', 'roboto', 700, 120)
-    // PROBE_PX=200 时行盒 240 → fontPx = 120 × 1.45 × 200/240
-    expect(m.fontPx).toBeCloseTo((120 * 1.45 * 200) / 240)
+    // PROBE_PX=200 时行盒 240 → fontPx = 120 × 1.38 × 200/240
+    expect(m.fontPx).toBeCloseTo((120 * 1.38 * 200) / 240)
+  })
+
+  it('fontPxOverride 显式字号：跳过行盒推导（横幅统一主/副行尺寸）', () => {
+    const m = measureInk(ctx, 'AB', 'roboto', 400, 120, 123)
+    expect(m.fontPx).toBe(123)
   })
 })
 
@@ -77,6 +89,68 @@ describe('drawInkText 行盒语义', () => {
     // 行盒语义：基线 = yTop + (targetH - boxH)/2 + fontAscent，与字符串墨迹无关
     expect(fills[0]!.y).toBe(fills[1]!.y)
     expect(fills[0]!.y).toBe(1000 + (72 - 240) / 2 + 190)
+  })
+
+  it('anchor=baseline：显式基线直绘（横幅跨栏对齐）', async () => {
+    const fills: Array<{ text: string; y: number }> = []
+    const ctx = {
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      fillStyle: '',
+      measureText: (text: string) => ({
+        width: text.length * 100,
+        fontBoundingBoxAscent: 190,
+        fontBoundingBoxDescent: 50,
+        actualBoundingBoxAscent: 145,
+        actualBoundingBoxDescent: 5
+      }),
+      fillText: (text: string, _x: number, y: number) => {
+        fills.push({ text, y })
+      }
+    } as unknown as Ctx2D
+
+    drawInkText(ctx, 'SONY', 0, 777, 72, { family: 'roboto', weight: 700, color: '#000' }, 'left', 'baseline')
+    drawInkText(ctx, '-', 0, 777, 72, { family: 'roboto', weight: 400, color: '#000' }, 'left', 'baseline')
+    expect(fills[0]!.y).toBe(777)
+    expect(fills[1]!.y).toBe(777)
+  })
+})
+
+describe('applyCaps（capsOnly 单位保护，BAN-011）', () => {
+  it('计量单位保持小写书写规范', () => {
+    expect(applyCaps('300mm f/6.3 1/1250s ISO500')).toBe('300mm F/6.3 1/1250s ISO500')
+    expect(applyCaps('24cm')).toBe('24cm')
+  })
+  it('非单位场景全大写', () => {
+    expect(applyCaps('nikon z 8')).toBe('NIKON Z 8')
+  })
+})
+
+describe('markSegments（尼康 Z 专用字形，R-04/R-12）', () => {
+  it('高亮字符段携带符号字体 family', () => {
+    const segs = markSegments('NIKON Z 8', '#ffffff', '#ff0000', 'Z', 'nikon-z-symbol')
+    expect(segs).toHaveLength(3)
+    expect(segs[0]).toEqual({ text: 'NIKON ', color: '#ffffff' })
+    expect(segs[1]).toEqual({ text: 'Z', color: '#ff0000', family: 'nikon-z-symbol' })
+    expect(segs[2]).toEqual({ text: ' 8', color: '#ffffff' })
+  })
+  it('无符号字体时仅换色（兼容旧行为）', () => {
+    const segs = markSegments('Z8', '#fff', '#f00')
+    expect(segs[0]).toEqual({ text: 'Z', color: '#f00' })
+    expect(segs[0]!.family).toBeUndefined()
+  })
+})
+
+describe('ensureContrastColor（叠印可读性，R-05）', () => {
+  it('亮背景 + 白字 → 切换深色', () => {
+    expect(ensureContrastColor('#ffffff', 0.92)).toBe('#1a1a1a')
+  })
+  it('暗背景 + 白字 → 保持', () => {
+    expect(ensureContrastColor('#ffffff', 0.1)).toBe('#ffffff')
+  })
+  it('采样不可用（null）→ 原样返回', () => {
+    expect(ensureContrastColor('#e88d34', null)).toBe('#e88d34')
   })
 })
 

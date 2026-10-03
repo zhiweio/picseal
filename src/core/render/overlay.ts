@@ -1,10 +1,14 @@
 import type { CenterStyle, CornerStyle } from '../types'
-import type { FontFamilyId } from '../fonts/registry'
+import { MARK_SYMBOL_FONT, type FontFamilyId } from '../fonts/registry'
 import {
+  drawImageSmoothed,
   drawInkSegments,
   drawInkText,
+  ensureContrastColor,
+  getInkBlock,
   markSegments,
   roundedRectPath,
+  sampleLuminance,
   type Ctx2D
 } from './canvas-utils'
 
@@ -13,6 +17,7 @@ import {
  * normal1：文字墨迹高 = 3% 图高，右下对齐，边距 5% 图高；
  * normal2：右缘锚定 93% 图宽、底线 95% 图高，墨迹高 2% 图高。
  * 首行主字重主色，其余行副字重副色。
+ * 绘制前采样文字区亮度，对比不足自动切换黑/白（R-05，BAN-007）。
  */
 export function drawCorner(
   ctx: Ctx2D,
@@ -35,6 +40,16 @@ export function drawCorner(
     ? { shadowColor: 'rgba(0,0,0,0.45)', shadowBlur: size * 0.4, shadowOffsetY: size * 0.06 }
     : undefined
 
+  // 品牌色语义强的模板（图注橙）可关闭自动切换（contrastFix=false）
+  let mainColor = corner.color
+  let subColor = corner.subColor
+  if (corner.contrastFix !== false) {
+    const sampleX = corner.position === 'bottom-right' ? width * 0.45 : width * 0.05
+    const luma = sampleLuminance(ctx, sampleX, height * 0.84, width * 0.5, height * 0.1)
+    mainColor = ensureContrastColor(corner.color, luma)
+    subColor = ensureContrastColor(corner.subColor, luma)
+  }
+
   if (shadow) {
     ctx.shadowColor = shadow.shadowColor
     ctx.shadowBlur = shadow.shadowBlur
@@ -42,8 +57,8 @@ export function drawCorner(
   }
 
   lines.forEach((text, i) => {
-    const weight = i === 0 ? mainWeight : subWeight
-    const color = i === 0 ? corner.color : corner.subColor
+    const weight = i === 0 && !corner.allSub ? mainWeight : subWeight
+    const color = i === 0 ? mainColor : subColor
     // 底线锚定：最末行行盒底 = height − insetY，向上逐行排
     const lineBottom = height - insetY - (lines.length - 1 - i) * lineGap
     drawInkText(ctx, text, anchorX, lineBottom - size, size, { family, weight, color }, align)
@@ -65,7 +80,7 @@ export function drawCenterLogo(
   family: FontFamilyId,
   typographyScale: number,
   subWeight: number,
-  markColor?: string
+  mark?: { color?: string; family: FontFamilyId }
 ): void {
   if (center.scrim) {
     const scrimH = height * 0.3
@@ -86,26 +101,29 @@ export function drawCenterLogo(
   if (caption) {
     const size = width * 0.022 * typographyScale
     const capY = cy + height * 0.03
-    if (markColor) {
+    const luma = sampleLuminance(ctx, width * 0.3, capY, width * 0.4, size * 1.4)
+    const captionColor = ensureContrastColor(center.captionColor, luma)
+    if (mark && caption.includes('Z')) {
       drawInkSegments(
         ctx,
-        markSegments(caption, center.captionColor, markColor),
+        markSegments(caption, captionColor, mark.color ?? captionColor, 'Z', mark.family),
         width / 2,
         capY,
         size,
-        { family, weight: subWeight, color: center.captionColor },
+        { family, weight: subWeight, color: captionColor },
         'center'
       )
     } else {
-      drawInkText(ctx, caption, width / 2, capY, size, { family, weight: subWeight, color: center.captionColor }, 'center')
+      drawInkText(ctx, caption, width / 2, capY, size, { family, weight: subWeight, color: captionColor }, 'center')
     }
   }
 }
 
 /**
  * 雾面卡片中央文字列 —— blur.json 的文字部分：
- * 机型（Bold，3% 图高）+ 参数（Light，3% 图高），居中。
- * 由 drawFrostedCard 调用，坐标已按主体列布局确定。
+ * 机型（Bold）+ 参数（Light），**墨迹语义**（blur.json trim:true：行高 = 墨迹高，
+ * 行间距 = 墨迹间隙，官方 blur 样例 ink:gap = 1:1:1）。
+ * 绘制走 InkBlock 超采样位图；颜色由调用方按背景亮度解析后传入（R-05）。
  */
 export function drawCenterStack(
   ctx: Ctx2D,
@@ -120,27 +138,41 @@ export function drawCenterStack(
     subWeight: number
     modelH: number
     paramsH: number
-    markColor?: string
+    mark?: { color?: string; family: FontFamilyId }
+    modelColor?: string
+    paramsColor?: string
   }
 ): void {
-  if (model) {
-    if (opts.markColor) {
+  const modelColor = opts.modelColor ?? '#ffffff'
+  const paramsColor = opts.paramsColor ?? '#ffffff'
+
+  const drawLine = (text: string, y: number, inkH: number, weight: number, color: string, markOn: boolean) => {
+    if (!text) return
+    const mark = markOn && opts.mark ? opts.mark : undefined
+    const block = getInkBlock(opts.family, weight, text, color, mark)
+    if (block) {
+      const w = block.naturalW * (inkH / block.naturalH)
+      drawImageSmoothed(ctx, block.canvas, centerX - w / 2, y, w, inkH)
+      return
+    }
+    const style = { family: opts.family, weight, color }
+    if (mark) {
       drawInkSegments(
         ctx,
-        markSegments(model, '#ffffff', opts.markColor),
+        markSegments(text, color, mark.color ?? color, 'Z', mark.family),
         centerX,
-        modelY,
-        opts.modelH,
-        { family: opts.family, weight: opts.mainWeight, color: '#ffffff' },
+        y,
+        inkH,
+        style,
         'center'
       )
     } else {
-      drawInkText(ctx, model, centerX, modelY, opts.modelH, { family: opts.family, weight: opts.mainWeight, color: '#ffffff' }, 'center')
+      drawInkText(ctx, text, centerX, y, inkH, style, 'center')
     }
   }
-  if (params) {
-    drawInkText(ctx, params, centerX, paramsY, opts.paramsH, { family: opts.family, weight: opts.subWeight, color: '#ffffff' }, 'center')
-  }
+
+  drawLine(model, modelY, opts.modelH, opts.mainWeight, modelColor, true)
+  drawLine(params, paramsY, opts.paramsH, opts.subWeight, paramsColor, true)
 }
 
 /** 装裱底板（白边/圆角/投影） */

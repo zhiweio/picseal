@@ -18,15 +18,20 @@ describe('字体注册表', () => {
     }
   })
 
-  it('四族分组齐备且标签映射完整', () => {
+  it('四族分组齐备且标签映射完整（symbol 组仅供渲染内部消费，不进 UI）', () => {
     const groups = new Set(Object.values(FONT_FAMILIES).map((f) => f.group))
     for (const group of groups) {
+      if (group === 'symbol') continue
       expect(FONT_GROUP_LABELS[group]).toBeTruthy()
     }
     expect(groups.has('sans')).toBe(true)
     expect(groups.has('condensed')).toBe(true)
     expect(groups.has('serif')).toBe(true)
     expect(groups.has('calligraphy')).toBe(true)
+    // 尼康 Z 专用符号字体：注册存在但不出现在 UI 分组
+    expect(groups.has('symbol')).toBe(true)
+    expect((FONT_GROUP_LABELS as Record<string, unknown>).symbol).toBeUndefined()
+    expect(getFontFamily('nikon-z-symbol').latin[400]).toBe('/fonts/wm/special-alphabets-p04.otf')
   })
 
   it('CJK 家族提供 cjk 子集路径', () => {

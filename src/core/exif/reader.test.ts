@@ -93,12 +93,27 @@ describe('normalizeExif', () => {
       ISO: 100
     })
     expect(meta.brandId).toBe('sony')
-    expect(meta.modelPretty).toBe('α7M4')
+    // α7M 系官方名不带 M，代数用罗马数字（α7 IV）
+    expect(meta.modelPretty).toBe('α7 IV')
   })
 
   it('matches panasonic LUMIX transform', () => {
     const meta = normalizeExif({ Make: 'Panasonic', Model: 'DMC-GX85' })
     expect(meta.modelPretty).toBe('LUMIX GX85')
+  })
+
+  it('keeps brand prefix and romanizes generations（semi-utils 语义）', () => {
+    // 品牌前缀保留（CameraModelName 原样展示）
+    expect(normalizeExif({ Make: 'NIKON CORPORATION', Model: 'NIKON Z 8' }).modelPretty).toBe('NIKON Z 8')
+    // 代际下划线后缀 → 罗马数字
+    expect(normalizeExif({ Make: 'NIKON CORPORATION', Model: 'NIKON Z 6_2' }).modelPretty).toBe('NIKON Z 6II')
+    expect(normalizeExif({ Make: 'NIKON CORPORATION', Model: 'NIKON Z 50_2' }).modelPretty).toBe('NIKON Z 50II')
+    expect(normalizeExif({ Make: 'Canon', Model: 'Canon EOS R6m2' }).modelPretty).toBe('Canon EOS R6 Mark II')
+    expect(normalizeExif({ Make: 'SONY', Model: 'ILCE-7RM5' }).modelPretty).toBe('α7R V')
+    expect(normalizeExif({ Make: 'SONY', Model: 'ILCE-7CM2' }).modelPretty).toBe('α7C II')
+    // 非代数数字不受影响
+    expect(normalizeExif({ Make: 'NIKON CORPORATION', Model: 'NIKON D850' }).modelPretty).toBe('NIKON D850')
+    expect(normalizeExif({ Make: 'NIKON CORPORATION', Model: 'NIKON Z fc' }).modelPretty).toBe('NIKON Z fc')
   })
 
   it('returns size only when exif missing', () => {

@@ -16,8 +16,9 @@ export type FontFamilyId =
   | 'lxgw-wenkai'
   | 'smiley-sans'
   | 'ma-shan-zheng'
+  | 'nikon-z-symbol'
 
-export type FontGroup = 'sans' | 'condensed' | 'serif' | 'calligraphy'
+export type FontGroup = 'sans' | 'condensed' | 'serif' | 'calligraphy' | 'symbol'
 
 export interface FontFamilyDef {
   id: FontFamilyId
@@ -49,7 +50,8 @@ export const FONT_FAMILIES: Record<FontFamilyId, FontFamilyDef> = {
     group: 'sans',
     cssName: 'Picseal Archivo',
     weights: [300, 400, 500, 600, 700, 800],
-    mainWeight: 700,
+    // M2 减重校准：700 → 600（BAN-010，默认观感减重 ~15%）
+    mainWeight: 600,
     subWeight: 400,
     latin: {
       300: LATIN('archivo')(300),
@@ -186,8 +188,26 @@ export const FONT_FAMILIES: Record<FontFamilyId, FontFamilyDef> = {
     subWeight: 400,
     latin: { 400: '/fonts/wm/ma-shan-zheng-400.woff2' },
     cjk: { 400: '/fonts/wm/ma-shan-zheng-400.woff2' }
+  },
+  /** 尼康 Z 专用符号字形（双线斜切 Z，Special Alphabets P04）——不进 UI 字体选择，仅 markSegments 消费 */
+  'nikon-z-symbol': {
+    id: 'nikon-z-symbol',
+    name: 'Nikon Z 符号',
+    group: 'symbol',
+    cssName: 'Picseal NikonZSymbol',
+    weights: [400],
+    mainWeight: 400,
+    subWeight: 400,
+    latin: { 400: '/fonts/wm/special-alphabets-p04.otf' }
   }
 }
+
+/** 尼康 Z 标字形字体（markSegments 按字符切换；仅 Z 系机型经 renderPhoto 门控启用） */
+export const MARK_SYMBOL_FONT = {
+  id: 'nikon-z-symbol' as FontFamilyId,
+  cssName: 'Picseal NikonZSymbol',
+  file: '/fonts/wm/special-alphabets-p04.otf'
+} as const
 
 export const DEFAULT_FONT: FontFamilyId = 'archivo'
 
@@ -195,7 +215,8 @@ export function getFontFamily(id: string | undefined): FontFamilyDef {
   return FONT_FAMILIES[(id ?? DEFAULT_FONT) as FontFamilyId] ?? FONT_FAMILIES[DEFAULT_FONT]
 }
 
-export const FONT_GROUP_LABELS: Record<FontGroup, { zh: string; en: string }> = {
+/** UI 字体分组（'symbol' 组不进选择器，仅供渲染内部消费） */
+export const FONT_GROUP_LABELS: Record<Exclude<FontGroup, 'symbol'>, { zh: string; en: string }> = {
   sans: { zh: '无衬线 · 铭牌', en: 'SANS' },
   condensed: { zh: '窄体 · 镜头环', en: 'CONDENSED' },
   serif: { zh: '衬线 · 文艺', en: 'SERIF' },

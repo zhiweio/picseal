@@ -75,6 +75,8 @@ export interface BannerStyle {
   dividerColor: string
   /** 右栏文本对齐：贴分隔线（小米徕卡风）或分散 */
   rightAlign: 'near' | 'far'
+  /** 补边画幅下横幅延展到画布全宽（缺省 false = 跟随照片宽度） */
+  fullWidth?: boolean
 }
 
 export interface CornerStyle {
@@ -85,6 +87,10 @@ export interface CornerStyle {
   subColor: string
   /** 文字投影，保证在亮背景可读 */
   textShadow: boolean
+  /** 全部行使用副字重（semi normal2 单行 Light 语义；缺省首行主字重） */
+  allSub?: boolean
+  /** 亮背景自动切换黑/白（R-05）；品牌色语义强的模板（图注橙）可关闭 */
+  contrastFix?: boolean
   lines: FieldSlot[]
   lineGap: number
 }
@@ -92,7 +98,7 @@ export interface CornerStyle {
 export interface CenterStyle {
   /** 主标题槽位（雾面卡片的机型行） */
   title: FieldSlot
-  /** logo 高度，占图宽比例 */
+  /** 居中标识的 logo 高度，占照片高比例（≈ 底带的 1/3） */
   logoRatio: number
   /** logo/主标题下方小字 */
   caption: FieldSlot
@@ -119,6 +125,8 @@ export interface WatermarkTemplate {
     /** 尼康 Z 款的红色标记字符等特殊处理 */
     markColor?: string
   }
+  /** 元数据缺失时的占位策略：'-' 占位（semi-utils 策略）或整行隐藏；缺省 'dash' 兼容旧预设 */
+  fieldPolicy?: 'dash' | 'hide'
 }
 
 /** 渲染选项 */

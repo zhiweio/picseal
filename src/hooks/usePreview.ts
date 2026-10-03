@@ -34,7 +34,7 @@ export function clearPreviewCache(): void {
 export function usePreview(
   photo: PhotoItem | undefined,
   template: WatermarkTemplate,
-  maxLongEdge = 2200
+  maxLongEdge = 2560
 ): { preview: PreviewResult | null; rendering: boolean; invalidate: () => void } {
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [rendering, setRendering] = useState(false)

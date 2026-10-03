@@ -20,7 +20,7 @@ async function decode(file: Blob): Promise<ImageBitmap> {
   return createImageBitmap(file, { imageOrientation: 'from-image' })
 }
 
-function canvasToBlob(canvas: OffscreenCanvas, format: string, quality: number): Promise<Blob> {
+function canvasToBlob(canvas: OffscreenCanvas, format: string, quality?: number): Promise<Blob> {
   return canvas.convertToBlob({ type: `image/${format}`, quality })
 }
 
@@ -58,7 +58,8 @@ async function handlePreview(
     options: { maxLongEdge, watermark: true }
   })
   bitmap.close()
-  const blob = await canvasToBlob(canvas, 'jpeg', 0.82)
+  // 预览用无损 PNG：JPEG 4:2:0 色度抽样会让文字边缘发糊/锯齿（对比 semi-utils quality95+4:4:4）
+  const blob = await canvasToBlob(canvas, 'png')
   post({ id, ok: true, kind: 'preview', blob, width: canvas.width, height: canvas.height })
 }
 

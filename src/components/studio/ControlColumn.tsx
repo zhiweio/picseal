@@ -223,6 +223,16 @@ function FieldsPanel() {
 
   return (
     <Panel label={t('fields.label')} labelEn={t('fields.labelEn')}>
+      <Row label={t('fields.missing')}>
+        <SegmentedControl
+          options={[
+            { value: 'dash', label: t('fields.missingDash') },
+            { value: 'hide', label: t('fields.missingHide') }
+          ]}
+          value={template.fieldPolicy ?? 'dash'}
+          onChange={(v) => update((d) => void (d.fieldPolicy = v as 'dash' | 'hide'))}
+        />
+      </Row>
       {template.layout === 'banner' || (template.layout === 'card' && template.canvas.mount !== 'blur') ? (
         <>
           <SlotSelect
@@ -286,12 +296,6 @@ function FieldsPanel() {
         ))
       ) : null}
 
-      {template.layout === 'center-logo' ? (
-        <SlotSelect
-          slot={template.center.caption}
-          onChange={(s) => update((d) => void (d.center.caption = s))}
-        />
-      ) : null}
     </Panel>
   )
 }
@@ -310,7 +314,7 @@ function AppearancePanel() {
   const template = useSettings((s) => s.template)
   const update = useSettings((s) => s.update)
 
-  const fontGroups = Object.keys(FONT_GROUP_LABELS) as FontGroup[]
+  const fontGroups = Object.keys(FONT_GROUP_LABELS) as Array<keyof typeof FONT_GROUP_LABELS>
 
   return (
     <Panel label={t('appearance.label')} labelEn={t('appearance.labelEn')}>
@@ -347,7 +351,7 @@ function AppearancePanel() {
       </Row>
 
       {template.layout === 'banner' || (template.layout === 'card' && template.canvas.mount !== 'blur') ? (
-        <Row label={t('export.label')}>
+        <Row label={t('appearance.bannerHeight')}>
           <div className="w-36">
             <TermSlider
               value={template.banner.heightRatio}
@@ -359,6 +363,38 @@ function AppearancePanel() {
             />
           </div>
         </Row>
+      ) : null}
+
+      {template.layout === 'banner' || (template.layout === 'card' && template.canvas.mount !== 'blur') ? (
+        <>
+          <Row label={t('appearance.rightAlign')}>
+            <SegmentedControl
+              options={[
+                { value: 'near', label: t('appearance.rightAlignNear') },
+                { value: 'far', label: t('appearance.rightAlignFar') }
+              ]}
+              value={template.banner.rightAlign}
+              onChange={(v) => update((d) => void (d.banner.rightAlign = v))}
+            />
+          </Row>
+          <Row label={t('appearance.bannerColor')}>
+            <div className="flex gap-1.5">
+              {['#ffffff', '#111111', '#f5f0e6'].map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  aria-label={color}
+                  onClick={() => update((d) => void (d.banner.bgColor = color))}
+                  className={clsx(
+                    'h-4 w-4 border',
+                    template.banner.bgColor === color ? 'border-accent' : 'border-line'
+                  )}
+                  style={{ background: color }}
+                />
+              ))}
+            </div>
+          </Row>
+        </>
       ) : null}
 
       {template.layout === 'card' ? (
@@ -414,23 +450,26 @@ function AppearancePanel() {
         </>
       ) : null}
 
-      <Row label={t('appearance.canvasColor')}>
-        <div className="flex gap-1.5">
-          {['#ffffff', '#111111', '#f5f0e6'].map((color) => (
-            <button
-              key={color}
-              type="button"
-              aria-label={color}
-              onClick={() => update((d) => void (d.canvas.mountColor = color))}
-              className={clsx(
-                'h-4 w-4 border',
-                template.canvas.mountColor === color ? 'border-accent' : 'border-line'
-              )}
-              style={{ background: color }}
-            />
-          ))}
-        </div>
-      </Row>
+      {/* 装裱底色：仅在有实际补边/装裱时可生效（扁平横幅的底色走"横幅底色"） */}
+      {template.canvas.mount !== 'none' || template.canvas.aspectRatio ? (
+        <Row label={t('appearance.canvasColor')}>
+          <div className="flex gap-1.5">
+            {['#ffffff', '#111111', '#f5f0e6'].map((color) => (
+              <button
+                key={color}
+                type="button"
+                aria-label={color}
+                onClick={() => update((d) => void (d.canvas.mountColor = color))}
+                className={clsx(
+                  'h-4 w-4 border',
+                  template.canvas.mountColor === color ? 'border-accent' : 'border-line'
+                )}
+                style={{ background: color }}
+              />
+            ))}
+          </div>
+        </Row>
+      ) : null}
 
       <Row label={t('appearance.aspectRatio')}>
         <select

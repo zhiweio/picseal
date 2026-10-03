@@ -25,7 +25,7 @@ const presetArraySchema = z.array(
 
 export const DEFAULT_OUTPUT: OutputSettings = {
   format: 'jpeg',
-  quality: 0.92,
+  quality: 0.96,
   keepExif: true,
   naming: 'original',
   longEdge: 0

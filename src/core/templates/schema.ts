@@ -38,7 +38,9 @@ export const templateSchema = z.object({
     textColor: z.string(),
     subColor: z.string(),
     dividerColor: z.string(),
-    rightAlign: z.enum(['near', 'far'])
+    rightAlign: z.enum(['near', 'far']),
+    /** 补边画幅下横幅延展到画布全宽（缺省 false = 跟随照片宽度） */
+    fullWidth: z.boolean().optional()
   }),
   corner: z.object({
     position: z.enum(['bottom-right', 'bottom-left']),
@@ -46,6 +48,8 @@ export const templateSchema = z.object({
     color: z.string(),
     subColor: z.string(),
     textShadow: z.boolean(),
+    allSub: z.boolean().optional(),
+    contrastFix: z.boolean().optional(),
     lines: z.array(fieldSlotSchema).max(4),
     lineGap: z.number().min(0).max(2)
   }),
@@ -60,7 +64,9 @@ export const templateSchema = z.object({
     font: z.enum(fontIds).default(DEFAULT_FONT),
     scale: z.number().min(0.6).max(1.4),
     markColor: z.string().optional()
-  })
+  }),
+  /** 元数据缺失时的占位策略：'-' 占位（semi-utils 策略）或整行隐藏；缺省 'dash' 兼容旧预设 */
+  fieldPolicy: z.enum(['dash', 'hide']).optional()
 })
 
 export function parseTemplate(json: unknown): WatermarkTemplate {

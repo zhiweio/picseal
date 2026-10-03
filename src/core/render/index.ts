@@ -1,16 +1,19 @@
 import type { PhotoMeta, RenderOptions, WatermarkTemplate } from '../types'
 import { BRANDS, DEFAULT_LOGO } from '../brands'
-import { getFontFamily } from '../fonts/registry'
-import { drawBannerStrip, type BannerLines } from './banner'
+import { getFontFamily, MARK_SYMBOL_FONT } from '../fonts/registry'
+import { drawBannerStrip, solveBannerHeight, type BannerLines } from './banner'
 import {
   FontBook,
   LogoBook,
+  drawImageSmoothed,
+  ensureContrastColor,
   parseAspectRatio,
   roundedRectPath,
+  sampleLuminance,
   type Ctx2D
 } from './canvas-utils'
 import { needsCjk, resolveField } from './fields'
-import { drawCenterLogo, drawCenterStack, drawCorner, drawMount } from './overlay'
+import { drawCenterStack, drawCorner, drawMount } from './overlay'
 import { computeFrostedLayout } from './geometry'
 
 export interface RenderInput {
@@ -41,8 +44,16 @@ export async function renderPhoto(input: RenderInput): Promise<OffscreenCanvas> 
   if (lines.allText.some(needsCjk)) await input.fonts.ensureFamily(fontDef.id, true)
   else await input.fonts.ensureFamily(fontDef.id, false)
 
+  // Z 字形门控（R-04/R-12）：仅尼康 Z 系机型使用官方特殊 Z 字形；
+  // markColor（红）仅在模板声明时叠加，横幅白底默认正文色（尼康官方风）
+  const nikonZ = brand?.id === 'nikon' && /\bZ/i.test(meta.modelPretty ?? '')
+  const markColor = nikonZ ? template.typography.markColor : undefined
+  const zMark = nikonZ ? { color: template.typography.markColor, family: MARK_SYMBOL_FONT.id } : undefined
+  if (nikonZ) await input.fonts.ensureUrl(MARK_SYMBOL_FONT.cssName, MARK_SYMBOL_FONT.file)
+
   const hasBannerStrip =
     template.layout === 'banner' ||
+    template.layout === 'center-logo' ||
     (template.layout === 'card' && template.canvas.mount !== 'blur')
   const wantsLogo =
     (hasBannerStrip && template.banner.logo.enabled) || template.layout === 'center-logo'
@@ -52,13 +63,6 @@ export async function renderPhoto(input: RenderInput): Promise<OffscreenCanvas> 
   const logo = logoUrl ? ((await input.logoBook.get(logoUrl)) ?? null) : null
   const centerLogo = centerLogoUrl ? ((await input.logoBook.get(centerLogoUrl)) ?? null) : null
 
-  const geometry = computeGeometry(photo, template)
-  const s = computeScale(geometry, options.maxLongEdge)
-  const g = scaleGeometry(geometry, s)
-
-  const canvas = makeCanvas(g.width, g.height)
-  const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
-
   const typography = {
     family: fontDef.id,
     mainWeight: fontDef.mainWeight,
@@ -66,22 +70,52 @@ export async function renderPhoto(input: RenderInput): Promise<OffscreenCanvas> 
     scale: template.typography.scale
   }
 
+  // 居中标识：横幅（白带）高度固定官方比例（12% 照片高），不参与文字 solve——
+  // 该模板只渲染居中 logo，若按四行文字反解会把白带压缩到 logo 放不下的尺寸
+  const isCenterLogo = template.layout === 'center-logo'
+  const bannerH = isCenterLogo
+    ? photo.height * template.banner.heightRatio
+    : hasBannerStrip
+      ? solveBannerHeight(
+          template,
+          photo.width,
+          photo.height,
+          lines.banner,
+          fontDef.id,
+          fontDef.mainWeight,
+          fontDef.subWeight,
+          zMark,
+          logo ? logo.width / logo.height : 1
+        )
+      : 0
+  // 主行墨迹高（绝对尺寸 = photoH × slotRatio × scale；横幅高度只做容纳 + 增长）
+  // 主行墨迹高 = 横幅基准高(= photoH × heightRatio) × slotRatio × scale
+  const slotHBase = photo.height * template.banner.heightRatio * 0.3 * template.typography.scale
+
+  const geometry = computeGeometry(photo, template, bannerH)
+  const s = computeScale(geometry, options.maxLongEdge)
+  const g = scaleGeometry(geometry, s)
+  const bannerHScaled = bannerH * s
+
+  const canvas = makeCanvas(g.width, g.height)
+  const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
+
   switch (template.layout) {
     case 'banner':
-      drawFlatWithBanner(ctx, photo, template, lines, logo, g, typography)
+      drawFlatWithBanner(ctx, photo, template, lines, logo, g, typography, zMark, bannerHScaled)
       break
     case 'card':
       if (template.canvas.mount === 'blur') {
-        drawFrostedCard(ctx, photo, template, lines, g, s, typography)
+        drawFrostedCard(ctx, photo, template, lines, g, s, typography, zMark)
       } else {
-        drawMountedCard(ctx, photo, template, lines, logo, g, typography)
+        drawMountedCard(ctx, photo, template, lines, logo, g, typography, zMark, bannerHScaled)
       }
       break
     case 'corner':
       drawFlatWithCorner(ctx, photo, template, lines, g, typography)
       break
     case 'center-logo':
-      drawFlatWithCenterLogo(ctx, photo, template, lines, g, centerLogo, typography)
+      drawFlatWithCenterLogo(ctx, photo, template, logo, g, bannerHScaled)
       break
   }
 
@@ -108,26 +142,27 @@ function resolveAllLines(
   template: WatermarkTemplate,
   fieldCtx: Parameters<typeof resolveField>[1]
 ): ResolvedLines {
+  const policy = template.fieldPolicy ?? 'dash'
   const b = template.banner
   const banner: BannerLines = {
-    leftTop: b.leftTop.enabled ? resolveField(b.leftTop.content, fieldCtx) : '',
-    leftBottom: b.leftBottom.enabled ? resolveField(b.leftBottom.content, fieldCtx) : '',
-    rightTop: b.rightTop.enabled ? resolveField(b.rightTop.content, fieldCtx) : '',
-    rightBottom: b.rightBottom.enabled ? resolveField(b.rightBottom.content, fieldCtx) : ''
+    leftTop: b.leftTop.enabled ? resolveField(b.leftTop.content, fieldCtx, policy) : '',
+    leftBottom: b.leftBottom.enabled ? resolveField(b.leftBottom.content, fieldCtx, policy) : '',
+    rightTop: b.rightTop.enabled ? resolveField(b.rightTop.content, fieldCtx, policy) : '',
+    rightBottom: b.rightBottom.enabled ? resolveField(b.rightBottom.content, fieldCtx, policy) : ''
   }
   const bannerEmpty =
     !banner.leftTop && !banner.leftBottom && !banner.rightTop && !banner.rightBottom
 
   const corner = template.corner.lines
     .filter((l) => l.enabled)
-    .map((l) => resolveField(l.content, fieldCtx).trim())
+    .map((l) => resolveField(l.content, fieldCtx, policy).trim())
     .filter((t) => t.length > 0)
 
   const centerTitle = template.center.title.enabled
-    ? resolveField(template.center.title.content, fieldCtx)
+    ? resolveField(template.center.title.content, fieldCtx, policy)
     : ''
   const centerCaption = template.center.caption.enabled
-    ? resolveField(template.center.caption.content, fieldCtx)
+    ? resolveField(template.center.caption.content, fieldCtx, policy)
     : ''
 
   return {
@@ -150,14 +185,13 @@ function resolveAllLines(
 
 /* ───────────────────────── 几何计算 ───────────────────────── */
 
-function computeGeometry(photo: ImageBitmap, template: WatermarkTemplate): RenderedGeometry {
+function computeGeometry(photo: ImageBitmap, template: WatermarkTemplate, bannerH: number): RenderedGeometry {
   const pW = photo.width
   const pH = photo.height
   const { canvas } = template
   const aspect = parseAspectRatio(canvas.aspectRatio)
 
   if (template.layout === 'banner') {
-    const bannerH = pH * template.banner.heightRatio * template.typography.scale
     return extendToAspect(
       { width: pW, height: pH + bannerH, photoRect: { x: 0, y: 0, w: pW, h: pH } },
       aspect,
@@ -175,7 +209,6 @@ function computeGeometry(photo: ImageBitmap, template: WatermarkTemplate): Rende
       )
     }
     const m = pW * canvas.margin
-    const bannerH = pH * template.banner.heightRatio * template.typography.scale
     return extendToAspect(
       {
         width: pW + m * 2,
@@ -187,7 +220,21 @@ function computeGeometry(photo: ImageBitmap, template: WatermarkTemplate): Rende
     )
   }
 
-  // corner / center-logo：纯叠加
+  if (template.layout === 'center-logo') {
+    // semi-utils center_logo 实测：上/左/右细白边 = 2% 照片高，底部宽白带 = banner 高（logo 居中）
+    const thin = pH * 0.02
+    return extendToAspect(
+      {
+        width: pW + thin * 2,
+        height: pH + thin + bannerH,
+        photoRect: { x: thin, y: thin, w: pW, h: pH }
+      },
+      aspect,
+      canvas.mountColor
+    )
+  }
+
+  // corner：纯叠加
   return extendToAspect(
     { width: pW, height: pH, photoRect: { x: 0, y: 0, w: pW, h: pH } },
     aspect,
@@ -276,13 +323,15 @@ function drawPhotoRounded(
   ctx.restore()
 }
 
-/** 横幅条带：紧贴照片下方；高度唯一来源（含 typography.scale） */
-function bannerStripRect(g: RenderedGeometry, t: WatermarkTemplate) {
+/** 横幅条带：紧贴照片下方；高度 = solveBannerHeight 单一结果（调用方已按渲染缩放换算） */
+function bannerStripRect(g: RenderedGeometry, t: WatermarkTemplate, bannerH: number) {
+  const fullWidth =
+    t.layout === 'center-logo' || (!!t.banner.fullWidth && g.width > g.photoRect.w)
   return {
-    x: g.photoRect.x,
+    x: fullWidth ? 0 : g.photoRect.x,
     y: g.photoRect.y + g.photoRect.h,
-    w: g.photoRect.w,
-    h: g.photoRect.h * t.banner.heightRatio * t.typography.scale
+    w: fullWidth ? g.width : g.photoRect.w,
+    h: bannerH
   }
 }
 
@@ -293,7 +342,9 @@ function drawFlatWithBanner(
   lines: ResolvedLines,
   logo: ImageBitmap | null,
   g: RenderedGeometry,
-  typography: Typography
+  typography: Typography,
+  zMark: { color?: string; family: ReturnType<typeof getFontFamily>['id'] } | undefined,
+  bannerH: number
 ): void {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
@@ -301,15 +352,17 @@ function drawFlatWithBanner(
   if (!lines.bannerEmpty) {
     drawBannerStrip(
       ctx,
-      bannerStripRect(g, t),
+      bannerStripRect(g, t, bannerH),
       lines.banner,
       {
         banner: t.banner,
         family: typography.family,
         mainWeight: typography.mainWeight,
         subWeight: typography.subWeight,
-        logo
-      }
+        logo,
+        mark: zMark
+      },
+      Math.min(1, typography.scale)
     )
   }
 }
@@ -321,7 +374,9 @@ function drawMountedCard(
   lines: ResolvedLines,
   logo: ImageBitmap | null,
   g: RenderedGeometry,
-  typography: Typography
+  typography: Typography,
+  zMark: { color?: string; family: ReturnType<typeof getFontFamily>['id'] } | undefined,
+  bannerH: number
 ): void {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
@@ -329,7 +384,7 @@ function drawMountedCard(
   if (!lines.bannerEmpty) {
     drawBannerStrip(
       ctx,
-      bannerStripRect(g, t),
+      bannerStripRect(g, t, bannerH),
       lines.banner,
       {
         banner: t.banner,
@@ -337,8 +392,10 @@ function drawMountedCard(
         mainWeight: typography.mainWeight,
         subWeight: typography.subWeight,
         logo,
-        transparentBg: true
-      }
+        transparentBg: true,
+        mark: zMark
+      },
+      Math.min(1, typography.scale)
     )
   }
 }
@@ -357,7 +414,8 @@ function drawFrostedCard(
   lines: ResolvedLines,
   g: RenderedGeometry,
   s: number,
-  typography: Typography
+  typography: Typography,
+  zMark?: { color?: string; family: ReturnType<typeof getFontFamily>['id'] }
 ): void {
   const model = lines.centerTitle || lines.centerCaption
   const params = lines.centerCaption !== model ? lines.centerCaption : ''
@@ -414,7 +472,10 @@ function drawFrostedCard(
   ctx.drawImage(photo, photoRect.x, photoRect.y, photoRect.w, photoRect.h)
   ctx.restore()
 
-  // 3. 文字列（照片下方）
+  // 3. 文字列（照片下方）—— 绘制前采样文字区亮度，对比不足自动切换黑/白（R-05）
+  const textTop = dy + S(Math.min(layout.modelY, layout.paramsY))
+  const textH = S(Math.abs(layout.paramsY - layout.modelY) + layout.modelH) + 8
+  const textLuma = sampleLuminance(ctx, g.width * 0.3, textTop, g.width * 0.4, textH)
   drawCenterStack(
     ctx,
     g.width / 2,
@@ -428,7 +489,9 @@ function drawFrostedCard(
       subWeight: typography.subWeight,
       modelH: S(layout.modelH),
       paramsH: S(layout.paramsH),
-      markColor: t.typography.markColor
+      mark: zMark,
+      modelColor: ensureContrastColor('#ffffff', textLuma),
+      paramsColor: ensureContrastColor('#ffffff', textLuma)
     }
   )
 }
@@ -457,30 +520,27 @@ function drawFlatWithCorner(
   )
 }
 
+/** 居中标识 —— semi-utils center_logo 语义：白底横幅带 + 仅一个品牌 logo 居中（无文字/无遮罩） */
 function drawFlatWithCenterLogo(
   ctx: Ctx2D,
   photo: ImageBitmap,
   t: WatermarkTemplate,
-  lines: ResolvedLines,
-  g: RenderedGeometry,
   logo: ImageBitmap | null,
-  typography: Typography
+  g: RenderedGeometry,
+  bannerH: number
 ): void {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
   drawPhotoRounded(ctx, photo, g.photoRect, radius, 0)
-  drawCenterLogo(
-    ctx,
-    g.width,
-    g.height,
-    logo,
-    lines.centerCaption,
-    t.center,
-    typography.family,
-    typography.scale,
-    typography.subWeight,
-    t.typography.markColor
-  )
+  const strip = bannerStripRect(g, t, bannerH)
+  ctx.fillStyle = t.banner.bgColor
+  ctx.fillRect(strip.x, strip.y, strip.w, strip.h)
+  if (logo) {
+    // logo 高 = center.logoRatio × 照片高（官方 center_height = vh(2)），带内水平垂直居中
+    const logoH = g.photoRect.h * t.center.logoRatio
+    const logoW = logoH * (logo.width / logo.height)
+    drawImageSmoothed(ctx, logo, g.width / 2 - logoW / 2, strip.y + (strip.h - logoH) / 2, logoW, logoH)
+  }
 }
 
 function supportsFilter(ctx: Ctx2D): boolean {

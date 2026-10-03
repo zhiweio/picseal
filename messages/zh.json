@@ -9,7 +9,8 @@
     "about": "关于",
     "github": "源代码",
     "theme": "主题",
-    "language": "语言"
+    "language": "语言",
+    "cinema": "放映室"
   },
   "landing": {
     "entry": "打开工作台",
@@ -67,7 +68,10 @@
       "gps": "位置",
       "logo": "标识",
       "custom": "自定义文字",
-      "show": "显示"
+      "show": "显示",
+      "missing": "缺失字段",
+      "missingDash": "显示 '-'",
+      "missingHide": "隐藏"
     },
     "appearance": {
       "label": "样式",
@@ -76,7 +80,12 @@
       "cornerRadius": "圆角",
       "shadow": "投影",
       "margin": "边距",
-      "canvasColor": "底色",
+      "canvasColor": "装裱底色",
+      "bannerColor": "横幅底色",
+      "bannerHeight": "横幅高度",
+      "rightAlign": "右栏对齐",
+      "rightAlignNear": "贴线",
+      "rightAlignFar": "分散",
       "aspectRatio": "画幅",
       "aspectOriginal": "原始",
       "font": "字体"
@@ -152,14 +161,73 @@
       "day": "昼"
     }
   },
-  "templates": {
-    "mi-classic": {
-      "name": "经典横幅",
-      "nameEn": "CLASSIC BANNER"
+  "cinema": {
+    "title": "放映室",
+    "titleEn": "PROJECTION ROOM",
+    "back": "返回工作台",
+    "entryHint": "把你的作品剪成一部电影 / MAKE A FILM",
+    "needMore": "还差 {count} 张 · 继续加油",
+    "needMoreEn": "KEEP SHOOTING",
+    "needMoreLong": "还差 {count} 张照片才能开演。好电影值得多按几次快门 —— 继续加油。",
+    "overLimit": "为最佳放映节奏，最多 {max} 张参与剪辑（已按拍摄时间等距预选，可手动调整）",
+    "preview": "预览放映",
+    "record": "生成并下载",
+    "stop": "停止",
+    "recording": "放映并录制中 · 请保持页面在前台，直到进度线走完",
+    "done": "成片就绪",
+    "downloadAgain": "再次下载",
+    "formatNote": "当前浏览器不支持 MP4 录制，已回退 WebM（可用转码工具换封装）",
+    "pick": "挑选照片",
+    "projection": {
+      "label": "放映",
+      "labelEn": "PROJECTION",
+      "frames": "{count} 张已装片"
     },
-    "banner-pro": {
-      "name": "标准横幅",
-      "nameEn": "STANDARD BANNER"
+    "reel": {
+      "label": "胶片",
+      "labelEn": "REEL",
+      "count": "库存 {count} 张",
+      "reset": "恢复默认片单"
+    },
+    "media": {
+      "label": "素材",
+      "labelEn": "MEDIA",
+      "introReady": "开场片段 · 白日梦想家（本地）",
+      "introMissing": "开场片段未就绪 · 将跳过",
+      "musicMain": "配乐 · Radical Face — Welcome Home（本地）",
+      "musicFallback": "配乐 · CC0 回退（Komiku）",
+      "loadIntro": "载入开场视频",
+      "loadMusic": "载入配乐",
+      "credit": "版权说明",
+      "creditNote": "版权曲目不入库，仅存本机浏览器。",
+      "loaded": "素材已载入"
+    },
+    "picker": {
+      "label": "选片",
+      "labelEn": "SELECT FRAMES",
+      "count": "{count} / {max}",
+      "hint": "勾选 {min}-{max} 张参与剪辑；预选已按拍摄时间等距采样",
+      "close": "关闭",
+      "cancel": "取消",
+      "confirm": "确认 {count} 张",
+      "orderNote": "成片按拍摄时间顺序放映"
+    },
+    "film": {
+      "titleMain": "作品集",
+      "titleSub": "A PHOTO COLLECTION",
+      "outroMain": "FIN"
+    },
+    "empty": {
+      "title": "装片开始",
+      "hint": "拖入或选择 {min} 张以上照片，配上开场与配乐，剪成一部尼康味的作品集电影",
+      "pick": "选择照片",
+      "drop": "或将照片拖放到此页"
+    }
+  },
+  "templates": {
+    "banner": {
+      "name": "横幅",
+      "nameEn": "BANNER"
     },
     "card-shadow": {
       "name": "装裱卡片",

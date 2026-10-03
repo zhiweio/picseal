@@ -18,8 +18,7 @@ export const BRANDS: BrandDef[] = [
     id: 'pentax',
     match: ['pentax', 'ricoh imaging'],
     name: 'Pentax',
-    logo: '/brands/pentax.png',
-    modelTransforms: [{ pattern: /^PENTAX\s*/, replace: '' }]
+    logo: '/brands/pentax.png'
   },
   {
     id: 'ricoh',
@@ -31,28 +30,19 @@ export const BRANDS: BrandDef[] = [
     id: 'leica',
     match: ['leica'],
     name: 'Leica',
-    logo: '/brands/leica.png',
-    modelTransforms: [{ pattern: /^Leica\s*/i, replace: '' }]
+    logo: '/brands/leica.png'
   },
   {
     id: 'nikon',
     match: ['nikon'],
     name: 'Nikon',
-    logo: '/brands/nikon.png',
-    modelTransforms: [
-      { pattern: /^NIKON\s*/i, replace: '' },
-      { pattern: /^Z(\d)/, replace: 'Z $1' }
-    ]
+    logo: '/brands/nikon.png'
   },
   {
     id: 'canon',
     match: ['canon'],
     name: 'Canon',
-    logo: '/brands/canon.png',
-    modelTransforms: [
-      { pattern: /^Canon\s*/i, replace: '' },
-      { pattern: /^EOS-?/i, replace: 'EOS ' }
-    ]
+    logo: '/brands/canon.png'
   },
   {
     id: 'fujifilm',
@@ -72,7 +62,8 @@ export const BRANDS: BrandDef[] = [
     id: 'olympus',
     match: ['olympus', 'om digital', 'om-digital'],
     name: 'OM SYSTEM',
-    logo: '/brands/olympus.png'
+    logo: '/brands/olympus.png',
+    logoOnDark: '/brands/olympus-dark.png'
   },
   {
     id: 'apple',
@@ -113,6 +104,12 @@ export const BRANDS: BrandDef[] = [
     logo: '/brands/insta360.png'
   },
   {
+    id: 'xmage',
+    match: ['xmage', 'sigma'],
+    name: 'sigma',
+    logo: '/brands/xmage.png'
+  },
+  {
     id: 'hasselblad',
     match: ['hasselblad'],
     name: 'Hasselblad',
@@ -120,7 +117,7 @@ export const BRANDS: BrandDef[] = [
   }
 ]
 
-export const DEFAULT_LOGO = '/brands/default.png'
+export const DEFAULT_LOGO = '/brands/default-hd.png'
 
 /** 按 make → model 顺序做包含匹配，返回品牌或 undefined */
 export function matchBrand(make?: string, model?: string): BrandDef | undefined {
@@ -139,12 +136,43 @@ export function matchBrand(make?: string, model?: string): BrandDef | undefined 
   return undefined
 }
 
-/** 应用品牌美化规则并清理通用噪声（下划线、多余空格） */
+/** 罗马数字（代际后缀：Z 6II / Mark II / α7R V —— 官方命名均用罗马数字） */
+function roman(n: number): string {
+  return ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][n] ?? String(n)
+}
+
+/**
+ * 代际数字罗马化（品牌感知）：
+ * - Nikon：EXIF "NIKON Z 6_2" → 官方 "NIKON Z 6II"（下划线代数后缀）
+ * - Canon："Canon EOS R6m2" → 官方 "Canon EOS R6 Mark II"
+ * - Sony："ILCE-7RM5" → 官方 "α7R V"（α7M4 → α7 IV，M 系官方名不带 M）
+ */
+function romanizeGeneration(brandId: string | undefined, s: string): string {
+  if (!s) return s
+  if (brandId === 'nikon') {
+    return s.replace(/(\d) ([0-9])$/, (_m, body: string, gen: string) => body + roman(Number(gen)))
+  }
+  if (brandId === 'canon') {
+    return s.replace(/m([2-9])$/i, (_m, gen: string) => ` Mark ${roman(Number(gen))}`)
+  }
+  if (brandId === 'sony') {
+    // EXIF 的 M 是代数标记（ILCE-7RM5 / 7M4 / 7CM2）：删除 M，代数罗马化（官方 α7R V / α7 IV / α7C II）
+    return s.replace(/^α7([A-Z]*)M([2-5])$/, (_m, letters: string, gen: string) => `α7${letters} ${roman(Number(gen))}`)
+  }
+  return s
+}
+
+/**
+ * 应用品牌美化规则并清理通用噪声（下划线、多余空格）。
+ * 品牌前缀保留在机型名中（semi-utils 语义：CameraModelName 原样展示——
+ * "NIKON Z 8"/"Canon EOS R5"/"LEICA M10"，品牌信息是出处的一部分，不剥离）。
+ */
 export function prettifyModel(brand: BrandDef | undefined, model?: string): string | undefined {
   if (!model) return undefined
   let out = model.replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
   for (const rule of brand?.modelTransforms ?? []) {
     out = out.replace(rule.pattern, rule.replace)
   }
+  out = romanizeGeneration(brand?.id, out)
   return out.trim() || undefined
 }

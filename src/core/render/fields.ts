@@ -6,22 +6,34 @@ export interface FieldContext {
   brand?: BrandDef
 }
 
+const TOKEN_RE = /\$(?:model|lens|param|datetime|gps|brand)/g
+
 /**
  * 解析字段槽位内容：'$model' 等令牌 → 元数据文本；字面文本原样输出。
- * 令牌对应数据缺失时显示 '-'（semi-utils 策略），不展示假数据。
+ * 复合内容（如 "$model    $datetime"，semi-utils normal2 的"段名+时间"一行式）
+ * 逐令牌解析、字面间隔保留。令牌缺失时按策略显示 '-' 或空串（R-06）。
  */
-export function resolveField(content: string, ctx: FieldContext): string {
+export function resolveField(
+  content: string,
+  ctx: FieldContext,
+  policy: 'dash' | 'hide' = 'dash'
+): string {
+  const missing = policy === 'hide' ? '' : '-'
+  const tokens = content.match(TOKEN_RE)
+  if (tokens && tokens.join('') !== content.trim()) {
+    return content.replace(TOKEN_RE, (t) => resolveField(t, ctx, policy))
+  }
   switch (content) {
     case '$model':
-      return ctx.meta.modelPretty ?? '-'
+      return ctx.meta.modelPretty ?? missing
     case '$lens':
-      return ctx.meta.lens ?? '-'
+      return ctx.meta.lens ?? missing
     case '$param':
-      return formatParams(ctx.meta) || '-'
+      return formatParams(ctx.meta) || missing
     case '$datetime':
-      return ctx.meta.dateTimeOriginal ? formatDate(ctx.meta.dateTimeOriginal) : '-'
+      return ctx.meta.dateTimeOriginal ? formatDate(ctx.meta.dateTimeOriginal) : missing
     case '$gps':
-      return ctx.meta.gps ? formatGps(ctx.meta.gps) : '-'
+      return ctx.meta.gps ? formatGps(ctx.meta.gps) : missing
     case '$brand':
       return ctx.brand?.name ?? ''
     default:
@@ -32,11 +44,12 @@ export function resolveField(content: string, ctx: FieldContext): string {
 /** 解析一组槽位为非空文本行 */
 export function resolveLines(
   slots: Array<{ enabled: boolean; content: string }>,
-  ctx: FieldContext
+  ctx: FieldContext,
+  policy: 'dash' | 'hide' = 'dash'
 ): string[] {
   return slots
     .filter((s) => s.enabled)
-    .map((s) => resolveField(s.content, ctx).trim())
+    .map((s) => resolveField(s.content, ctx, policy).trim())
     .filter((t) => t.length > 0)
 }
 
