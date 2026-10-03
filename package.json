@@ -32,7 +32,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.6.0",
-    "three": "^0.173.0",
+    "three": "^0.183.2",
     "zod": "^3.24.1",
     "zustand": "^5.0.3"
   },
@@ -46,7 +46,7 @@
     "@types/node": "^22.10.10",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
-    "@types/three": "^0.173.0",
+    "@types/three": "^0.183.1",
     "iconv-lite": "^0.7.3",
     "sharp": "^0.35.5",
     "tailwindcss": "^4.0.0",

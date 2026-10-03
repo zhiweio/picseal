@@ -1,87 +1,98 @@
 /**
- * 卡片材质 —— 移植自 Rhine-Music-Demo music-model.ts / scene.ts（MIT，© LBEILC / RonaldDeng）。
- * 磨砂玻璃壳（MeshPhysicalMaterial transmission）+ 封面图集平面（哑光印刷，
- * 注入防漂白钳制），照片悬浮于玻璃前面、四周露出透明玻璃边框。
+ * 卡片材质 —— 移植自 Rhine-Music-Demo music-model.ts（MIT，© LBEILC / RonaldDeng）。
+ * 三表面玻璃配方（baseline/昼间双列）+ 哑光印刷面（图集实例 UV + 防漂白钳制）。
+ * 关键：透明全部走 MeshPhysicalMaterial 的 transmission 通道（transparent:false），
+ * 印刷面用 alphaTest 而非 transparent —— 否则会从透射缓冲中消失。
  */
 import * as THREE from 'three'
+import type { ThemeTransition } from './theme-transition'
 
-/** 档案盒尺寸（demo MUSIC_MODEL：4.45 × 3.35 × 0.14） */
-export const CASE = { width: 4.45, height: 3.35, depth: 0.14 }
-/** 照片装裱窗：悬浮于玻璃前面，四周留玻璃透明边（demo 封面 +0.012 偏移同款） */
-export const COVER = { width: 3.72, height: 2.88, z: CASE.depth / 2 + 0.012 }
+export type GlassFinish = Pick<
+  THREE.MeshPhysicalMaterial,
+  'transmission' | 'thickness' | 'roughness' | 'attenuationDistance'
+>
 
-export interface CaseMaterials {
-  /** 阵列磨砂玻璃壳 */
-  frosted: THREE.MeshPhysicalMaterial
-  /** 选中卡的 hero 玻璃（更高透度、更薄） */
-  hero: THREE.MeshPhysicalMaterial
-  dispose(): void
-}
-
-/**
- * 阵列版磨砂玻璃（demo scene.ts 阵列 Frosted_Polymer 参数）：
- * transmission 0.78 / roughness 0.28 / clearcoat 0.3 —— 通透但保留磨砂质感。
- * instanced 网格无法递归采样屏幕空间透射，无需再分部位。
- */
-export function createCaseMaterials(): CaseMaterials {
-  const frosted = new THREE.MeshPhysicalMaterial({
-    color: '#fff7ed',
-    metalness: 0,
-    roughness: 0.28,
-    transmission: 0.78,
-    thickness: 0.28,
-    ior: 1.46,
-    attenuationColor: new THREE.Color('#d4c7b4'),
-    attenuationDistance: 1.2,
-    clearcoat: 0.3,
-    clearcoatRoughness: 0.25,
-    envMapIntensity: 0.65
-  })
-
-  const hero = new THREE.MeshPhysicalMaterial({
-    color: '#f8f4ee',
-    metalness: 0,
-    roughness: 0.21,
-    transmission: 0.9,
-    thickness: 0.12,
-    ior: 1.46,
-    attenuationColor: new THREE.Color('#eee6df'),
-    attenuationDistance: 2,
-    clearcoat: 0.3,
-    clearcoatRoughness: 0.22,
-    envMapIntensity: 0.65
-  })
-
-  return {
-    frosted,
-    hero,
-    dispose() {
-      frosted.dispose()
-      hero.dispose()
-    }
+/** baseline = 夜间/默认；day = 昼间（更实、更雾，适配浅色背景） */
+const GLASS_FINISH: Record<
+  string,
+  { baseline: GlassFinish; day: GlassFinish; dayColor: string }
+> = {
+  Frosted_Polymer: {
+    baseline: { transmission: 0.96, thickness: 0.026, roughness: 0.4, attenuationDistance: 4.5 },
+    day: { transmission: 0.88, thickness: 0.1, roughness: 0.48, attenuationDistance: 1.2 },
+    dayColor: '#f3f0e9'
+  },
+  Ivory_Edges: {
+    baseline: { transmission: 0.84, thickness: 0.06, roughness: 0.25, attenuationDistance: 4.5 },
+    day: { transmission: 0.66, thickness: 0.1, roughness: 0.34, attenuationDistance: 1.2 },
+    dayColor: '#e6ddd1'
+  },
+  Optical_Diffuser: {
+    baseline: { transmission: 0.66, thickness: 0.035, roughness: 0.4, attenuationDistance: 4.5 },
+    day: { transmission: 0.56, thickness: 0.07, roughness: 0.46, attenuationDistance: 1.2 },
+    dayColor: '#eee8df'
   }
 }
 
-/** 昼间主题的玻璃参数回调（demo configureMusicGlass 的 day 列） */
-export function applyDayFinish(m: CaseMaterials): void {
-  m.frosted.transmission = 0.88
-  m.frosted.roughness = 0.48
-  m.frosted.thickness = 0.1
-  m.frosted.attenuationColor = new THREE.Color('#f3e9db')
-  m.frosted.attenuationDistance = 4.5
-  m.frosted.color = new THREE.Color('#f3f0e9')
+/** 磨砂玻璃壳的统一底色：磨砂聚合物之下是柔和的表面印刷 */
+export function configurePhotoGlass(surface: string, material: THREE.MeshPhysicalMaterial): void {
+  material.color.set('#fffdfa')
+  material.metalness = 0
+  material.envMapIntensity = 0.65
+  material.ior = 1.46
+  material.attenuationColor.set('#f3e9db')
+  material.attenuationDistance = 4.5
+  material.clearcoat = 0.16
+  material.clearcoatRoughness = 0.2
+  material.transparent = false
+  material.opacity = 1
+  const finish = GLASS_FINISH[surface]
+  if (finish) Object.assign(material, finish.baseline)
+  material.userData.photoShell = true
+}
+
+/** 浅色背景需要更实的体密度与可读的哑光边缘 */
+export function setPhotoGlassTheme(
+  surface: string,
+  material: THREE.MeshPhysicalMaterial,
+  day: boolean,
+  transition: ThemeTransition
+): void {
+  const finish = GLASS_FINISH[surface]
+  if (!material.userData.photoShell || !finish) return
+  const target = day ? finish.day : finish.baseline
+  for (const key of ['transmission', 'thickness', 'roughness', 'attenuationDistance'] as const)
+    transition.number(material, key, target[key])
+  if (day) transition.color(material.color, finish.dayColor)
+}
+
+/** 检视柔化磨砂但永不成抛光塑料；印刷面在本材质之前，完全独立 */
+export function setPhotoGlassClarity(
+  material: THREE.MeshPhysicalMaterial,
+  clarity: number,
+  warmth = 0
+): void {
+  const finish = GLASS_FINISH['Frosted_Polymer']!
+  const daylight = THREE.MathUtils.clamp(warmth, 0, 1)
+  material.roughness = THREE.MathUtils.lerp(
+    THREE.MathUtils.lerp(finish.baseline.roughness, finish.day.roughness, daylight),
+    THREE.MathUtils.lerp(0.3, 0.44, daylight),
+    THREE.MathUtils.clamp(clarity, 0, 1)
+  )
 }
 
 /**
- * 封面印刷材质（图集 + 实例 UV）：哑光受光，但强光不漂白印刷色
- * （注入 `outgoingLight = min(outgoingLight, diffuseColor.rgb)`，demo 原式）；
- * coverTile 实例属性逐实例取样图集瓦片（demo cover-atlas.ts 原式）。
+ * 印刷材质（图集 + 实例 UV）：哑光受光，但强光不漂白印刷色
+ * （`outgoingLight = min(outgoingLight, diffuseColor.rgb)` 原式）；
+ * coverTile 实例属性逐实例取样图集瓦片。
  */
-export function createCoverMaterial(map: THREE.Texture): THREE.MeshLambertMaterial {
+export function createPrintMaterial(
+  map: THREE.Texture,
+  shadePrint?: (shader: THREE.WebGLProgramParametersWithUniforms) => void
+): THREE.MeshLambertMaterial {
   const material = new THREE.MeshLambertMaterial({
     map,
-    transparent: true,
-    alphaTest: 0.02,
+    alphaTest: 0.025,
     toneMapped: false,
     fog: true
   })
@@ -93,7 +104,32 @@ export function createCoverMaterial(map: THREE.Texture): THREE.MeshLambertMateri
       '#include <opaque_fragment>',
       'outgoingLight = min(outgoingLight, diffuseColor.rgb);\n#include <opaque_fragment>'
     )
+    shadePrint?.(shader)
   }
-  material.customProgramCacheKey = () => 'picseal-cover-v2'
+  material.customProgramCacheKey = () => 'picseal-photo-print-v1'
+  return material
+}
+
+/**
+ * 选中卡的高清印刷面：与实例版同样的防漂白 + 光柱衰减，但无 coverTile
+ * 实例属性（非实例网格不应声明未提供的 attribute）。
+ */
+export function createHeroPrintMaterial(
+  map: THREE.Texture,
+  shadePrint?: (shader: THREE.WebGLProgramParametersWithUniforms) => void
+): THREE.MeshLambertMaterial {
+  const material = new THREE.MeshLambertMaterial({
+    map,
+    toneMapped: false,
+    fog: true
+  })
+  material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      'outgoingLight = min(outgoingLight, diffuseColor.rgb);\n#include <opaque_fragment>'
+    )
+    shadePrint?.(shader)
+  }
+  material.customProgramCacheKey = () => 'picseal-photo-print-hero-v1'
   return material
 }

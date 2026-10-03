@@ -258,3 +258,75 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── 影像档案墙：解密扫描 HUD + 文字墨条 + 详情卡响应式 ── */
+.hud-layer {
+  width: 100%;
+  height: 100%;
+}
+.hud-scan-line {
+  stroke: var(--accent, #b98a4a);
+  stroke-width: 1.5;
+  stroke-dasharray: 7 5;
+  opacity: 0.9;
+}
+.hud-scan-corner {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+.hud-scan-point {
+  fill: var(--accent, #b98a4a);
+}
+.hud-scan-label {
+  fill: var(--muted);
+  font-size: 11px;
+  letter-spacing: 3px;
+}
+
+/* 文字解密墨条：先遮盖，玻璃揭示后依次擦除（demo 原为纸质面板固定深墨 #20221d；
+   夜间若用亮色 --ink 会像白闪渲染错误，此处随主题取中性深色） */
+.doc-redaction-window {
+  position: absolute;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  z-index: 1;
+}
+.doc-redaction-ink {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: #232722;
+  will-change: transform;
+}
+[data-theme='night'] .doc-redaction-ink {
+  background: #2c3a50;
+}
+@media (prefers-reduced-motion: reduce) {
+  .doc-redaction-window {
+    display: none;
+  }
+}
+
+/* 详情档案卡：桌面右侧竖排（检视卡锚定左侧 25%），竖屏/紧凑为底部面板 */
+.wall-detail-anchor {
+  position: absolute;
+  display: block;
+}
+[data-layout='desktop'] .wall-detail-anchor {
+  right: 4vw;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(360px, 32vw);
+}
+[data-layout='compact'] .wall-detail-anchor,
+[data-layout='portrait'] .wall-detail-anchor {
+  left: 12px;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+}
+[data-layout='desktop'] .detail-panel {
+  backdrop-filter: blur(6px);
+}
