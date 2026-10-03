@@ -15,6 +15,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import {
   archiveWave,
+  bell,
   columnStrength,
   damp,
   idleWave,
@@ -186,6 +187,15 @@ export class ArchiveWallScene {
   private cursor = new THREE.Vector2(0, 0)
   private raycaster = new THREE.Raycaster()
   private hoveredCell: Cell | null = null
+  /** 指针跟随波：波心（格位连续值）与幅度，鼠标悬浮滑动时波浪追随指针 */
+  private pointerRow: Spring = spring(0)
+  private pointerLane: Spring = spring(0)
+  private pointerAmp: Spring = spring(0)
+  private pointerRowTarget = 0
+  private pointerLaneTarget = 0
+  private pointerAmpTarget = 0
+  /** 悬浮卡片微抬（cells index → spring） */
+  private hoverLifts = new Map<number, Spring>()
   private layoutKind = 'desktop'
   private coarsePointer = false
 
@@ -840,6 +850,7 @@ export class ArchiveWallScene {
       if (e.pointerType !== 'mouse') return
       if (this.reveal < 0.8 || this.detail > 0.2 || !this.loaded) {
         this.hoveredCell = null
+        this.pointerAmpTarget = 0
         canvas.style.cursor = 'default'
         return
       }
@@ -848,6 +859,12 @@ export class ArchiveWallScene {
         -((e.clientY - rect.top) / rect.height) * 2 + 1
       )
       this.hoveredCell = this.raycastCell()
+      if (this.hoveredCell) {
+        // 指针跟随波：波心追踪悬浮命中的格位（spring 平滑，波浪随指针滑动）
+        this.pointerRowTarget = this.hoveredCell.row
+        this.pointerLaneTarget = this.hoveredCell.lane
+        this.pointerAmpTarget = 1
+      } else this.pointerAmpTarget = 0
       canvas.style.cursor = this.hoveredCell ? 'pointer' : 'default'
     })
 
@@ -909,7 +926,11 @@ export class ArchiveWallScene {
         dragging = false
       }
     })
-    on<Event>(canvas, 'pointerleave', () => this.pointer.set(0, 0))
+    on<Event>(canvas, 'pointerleave', () => {
+      this.pointer.set(0, 0)
+      this.hoveredCell = null
+      this.pointerAmpTarget = 0
+    })
 
     on<WheelEvent>(
       canvas,
@@ -1053,6 +1074,15 @@ export class ArchiveWallScene {
       1 - Math.exp(-dt * 8)
     )
 
+    // 指针跟随波：波心阻尼追踪悬浮格位，幅度随检视进入而退场
+    damp(this.pointerRow, this.pointerRowTarget, 8, dt)
+    damp(this.pointerLane, this.pointerLaneTarget, 8, dt)
+    const pointerAmpTarget = reduced
+      ? 0
+      : this.pointerAmpTarget * (1 - this.detail) * (this.reveal > 0.8 ? 1 : 0)
+    damp(this.pointerAmp, pointerAmpTarget, 4, dt)
+
+    const pointerWaveAmp = this.pointerAmp.value
     const field = (row: number, lane: number): number => {
       let height =
         archiveWave(row, lane, this.scanTime) * this.scanBlend +
@@ -1065,6 +1095,16 @@ export class ArchiveWallScene {
           ripple += musicSelectionWave(distance, age) * rippleEnvelope(distance, age)
         }
         height += THREE.MathUtils.clamp(ripple, -0.24, 0.24) * this.pulseGain
+      }
+      if (pointerWaveAmp > 0.001) {
+        // 波浪追随鼠标指针：以悬浮命中格位为中心的呼吸波包
+        const breathe = 0.6 + 0.4 * Math.sin((time * Math.PI) / 1.2)
+        height +=
+          0.1 *
+          pointerWaveAmp *
+          breathe *
+          bell(row - this.pointerRow.value, 1.3) *
+          bell(lane - this.pointerLane.value, 0.9)
       }
       const distance = row - this.shoulder.value
       return height + settlingWave(distance, 26.56) * columnStrength(lane, this.laneFocus.value)
@@ -1166,10 +1206,21 @@ export class ArchiveWallScene {
     // 阵列实例：整个货架在固定检视槽周围滑动（-trackX / rail）
     const hidden = new Set(this.outgoing.map((o) => cellKey(o.cell)))
     hidden.add(cellKey(this.selectedCell))
+    // 悬浮微抬：仅浏览态生效（检视进入时随 pointerAmp 一同退场）
+    const hoverActive = pointerAmpTarget > 0.5
+    for (const [index, lift] of this.hoverLifts) {
+      const target = hoverActive && this.hoveredCell === this.cells[index] ? 0.3 : 0
+      damp(lift, target, 8, dt)
+      if (target === 0 && Math.abs(lift.value) < 0.002 && Math.abs(lift.velocity) < 0.01)
+        this.hoverLifts.delete(index)
+    }
+    const hoverIndex = hoverActive && this.hoveredCell ? this.cells.indexOf(this.hoveredCell) : -1
+    if (hoverIndex >= 0 && !this.hoverLifts.has(hoverIndex))
+      this.hoverLifts.set(hoverIndex, spring(0))
     for (let i = 0; i < this.cells.length; i++) {
       const cell = this.cells[i]!
       const p = this.cellPosition(cell)
-      const value = field(cell.row, cell.lane)
+      const value = field(cell.row, cell.lane) + (this.hoverLifts.get(i)?.value ?? 0)
       const slope = field(cell.row + 0.5, cell.lane) - field(cell.row - 0.5, cell.lane)
       this.cellField[i] = value
       this.cellSlope[i] = slope
@@ -1375,6 +1426,7 @@ export class ArchiveWallScene {
     this.disposed = true
     cancelAnimationFrame(this.frame)
     if (this.pendingOpen !== null) window.clearTimeout(this.pendingOpen)
+    this.hoverLifts.clear()
     if (this.watchdog !== null) window.clearInterval(this.watchdog)
     this.resizeObserver?.disconnect()
     for (const [target, type, fn] of this.listeners) target.removeEventListener(type, fn)
