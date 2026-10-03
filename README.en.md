@@ -68,6 +68,26 @@ pnpm build      # production build
 
 > The bundled sample library is collected from Wikimedia Commons by `scripts/fetch-samples.mjs` (per-camera categories, EXIF validation, quality gates, proper attribution). The repo ships 160 finished samples; to rebuild: `node scripts/fetch-samples.mjs`.
 
+## 🐳 Deployment
+
+**Vercel** (zero config): the repo ships [`vercel.json`](vercel.json) (Next.js framework preset, region hkg1); import and go:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zhiweio/picseal)
+
+**Docker**: GitHub Actions builds a **multi-arch image (amd64 / arm64)** and pushes it to Docker Hub on every published tag (e.g. `1.0.0`) — see [docker-build.yml](.github/workflows/docker-build.yml). Use the prebuilt image directly:
+
+```bash
+docker run -d -p 3000:3000 zhiweio/picseal:latest
+```
+
+or the bundled [`docker-compose.yml`](docker-compose.yml):
+
+```bash
+docker compose up -d
+```
+
+To build locally: `docker build -t picseal .`
+
 ## 📋 Format Matrix
 
 | Stage | Formats | Implementation |

@@ -68,6 +68,26 @@ pnpm build      # 生产构建
 
 > 内置样片库由 `scripts/fetch-samples.mjs` 从 Wikimedia Commons 按相机分类采集（验证 EXIF + 质量门槛 + 署名合规），仓库已含 160 张成品；如需重建：`node scripts/fetch-samples.mjs`。
 
+## 🐳 部署
+
+**Vercel**（零配置）：仓库已含 [`vercel.json`](vercel.json)（Next.js 框架预设，区域 hkg1），一键导入即可：
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/zhiweio/picseal)
+
+**Docker**：GitHub Actions 在每次发布 tag（如 `1.0.0`）时自动构建 **amd64 / arm64 双架构镜像**并推送 Docker Hub（见 [docker-build.yml](.github/workflows/docker-build.yml)），直接使用预构建镜像：
+
+```bash
+docker run -d -p 3000:3000 zhiweio/picseal:latest
+```
+
+或使用仓库自带的 [`docker-compose.yml`](docker-compose.yml)：
+
+```bash
+docker compose up -d
+```
+
+也可本地自建镜像：`docker build -t picseal .`
+
 ## 📋 格式与能力矩阵
 
 | 环节 | 格式 | 实现 |
