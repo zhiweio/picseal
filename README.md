@@ -40,7 +40,7 @@ PICSEAL 为照片生成相机品牌风格的信息水印 —— 机型 / 镜头 
 - **批量生产线**：拖拽 / 粘贴 / 文件夹 / **ZIP 压缩包** 五通道导入 → 实时预览 + A/B 对比 → 预设定稿（localStorage / JSON 导入导出）→ Worker 池并行批量 → **流式 ZIP 打包下载**（边产边压，File System Access 直写磁盘优先）
 - **EXIF 完整保留**：导出时把原始拍摄信息写回文件，覆盖全部输出格式（JPEG / PNG / WebP），支持跨格式（HEIC 原图 → JPEG 输出），写入时自动重置 Orientation 防止二次旋转
 - **3D 影像档案墙**（落地页）：暖调画廊 + 磨砂玻璃档案盒（物理透射材质）+ 封面图集实例 + 横向纵深巷道 + 长焦压缩视场 + SSAO / 景深 / SMAA 后处理。交互与动效深度移植自 [Rhine-Music-Demo](https://github.com/RonaldDeng/Rhine-Music-Demo)（MIT）
-- **节拍律动 BGM**：WebAudio 谱通量检测鼓点，墙面随节奏泛起涟漪；内置 CC0 曲目（[Komiku](https://commons.wikimedia.org/wiki/File:Komiku_-_03_-_The_road_we_use_to_travel_when_we_were_kids.ogg)），支持载入你自己的音源（仅存本地 IndexedDB），可一键关闭
+- **节拍律动 BGM**：WebAudio 谱通量检测鼓点，墙面随节奏泛起涟漪；内置 CC0 曲目（[Komiku — Childhood scene](https://commons.wikimedia.org/wiki/File:Komiku_-_01_-_Childhood_scene.ogg)），支持载入你自己的音源（仅存本地 IndexedDB），可一键关闭
 - **深浅双主题 · 中英双语 · PWA** · RhineLab 终端视觉（直角 / 1px 规则线 / 双语微标签 / 650ms 变量插值切换）
 - **本地优先**：零上传、零账号、离线可用；示例样片均来自 Wikimedia Commons 自由许可
 
