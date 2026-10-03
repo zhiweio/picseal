@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import clsx from 'clsx'
-import { FolderOpen, ImagePlus } from 'lucide-react'
+import { FolderOpen, Github, ImagePlus } from 'lucide-react'
+import { Link } from '@/i18n/navigation'
 import { TopBar } from './TopBar'
 import { FilmStrip } from './FilmStrip'
 import { Stage } from './Stage'
@@ -138,6 +139,24 @@ export function Studio() {
           />
         )}
       </div>
+
+      <footer className="flex h-9 shrink-0 items-center justify-between border-t border-line px-4">
+        <Link
+          href="/"
+          className="text-[11px] font-bold tracking-[3px] transition-opacity hover:opacity-70"
+        >
+          PICSEAL
+        </Link>
+        <a
+          href="https://github.com/zhiweio/picseal"
+          target="_blank"
+          rel="noreferrer"
+          aria-label={tr('nav.github')}
+          className="flex h-[22px] w-[22px] items-center justify-center border border-line text-muted transition-colors hover:border-ink hover:text-ink"
+        >
+          <Github size={12} />
+        </a>
+      </footer>
 
       {/* 拖放遮罩 */}
       {dragging ? (

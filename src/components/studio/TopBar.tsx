@@ -1,14 +1,13 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { Github } from 'lucide-react'
 import clsx from 'clsx'
 import { BigCount } from '@/components/ui/primitives'
 import { LangToggle, ThemeToggle } from '@/components/Toggles'
 import { NikonZMark } from '@/components/ui/NikonZMark'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { CINEMA_MIN_PHOTOS } from '@/core/cinema/timeline'
-import { useRouter } from '@/i18n/navigation'
+import { Link, useRouter } from '@/i18n/navigation'
 import { usePhotos } from '@/stores/photos'
 import { useQueue, queueSummary } from '@/stores/queue'
 
@@ -26,7 +25,12 @@ export function TopBar({ onOpenBatch }: { onOpenBatch: () => void }) {
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
       <div className="flex items-baseline gap-3">
-        <span className="text-[15px] font-bold tracking-[3px]">PICSEAL</span>
+        <Link
+          href="/"
+          className="text-[15px] font-bold tracking-[3px] transition-opacity hover:opacity-70"
+        >
+          PICSEAL
+        </Link>
         <span className="hud-label hidden sm:inline">
           {tr('brand.tagline')} / {tr('brand.taglineEn')}
         </span>
@@ -47,15 +51,6 @@ export function TopBar({ onOpenBatch }: { onOpenBatch: () => void }) {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <LangToggle />
-          <a
-            href="https://github.com/zhiweio/picseal"
-            target="_blank"
-            rel="noreferrer"
-            aria-label={tr('nav.github')}
-            className="flex h-[26px] w-[26px] items-center justify-center border border-line text-muted transition-colors hover:border-ink hover:text-ink"
-          >
-            <Github size={13} />
-          </a>
           <Tooltip
             label={
               cinemaReady
