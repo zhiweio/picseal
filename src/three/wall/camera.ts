@@ -9,9 +9,9 @@ import { damp, spring, type Spring } from './motion'
 export const PREVIEW_LIFT = 0.9
 export const INSPECTION_LIFT = 4.05
 
-/** detail 检视姿态（相对 archive）：俯仰 20°、水平偏航 8° */
-export const DETAIL_ELEVATION = THREE.MathUtils.degToRad(20)
-export const DETAIL_YAW = THREE.MathUtils.degToRad(8)
+/** detail 检视姿态（相对 archive）：接近平视（避免俯瞰背后的卡组顶面），轻微偏航 */
+export const DETAIL_ELEVATION = THREE.MathUtils.degToRad(9)
+export const DETAIL_YAW = THREE.MathUtils.degToRad(6)
 
 
 

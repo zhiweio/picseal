@@ -27,7 +27,7 @@ import {
 } from './motion'
 import { CameraMotion, Presentation, DETAIL_ELEVATION, DETAIL_YAW, INSPECTION_LIFT, PREVIEW_LIFT } from './camera'
 import { CASE, COVER, createCaseMaterials, createCoverMaterial, applyDayFinish, type CaseMaterials } from './materials'
-import { CoverAtlas } from './atlas'
+import { CoverAtlas, ATLAS_PAGE_CAPACITY } from './atlas'
 
 export interface WallItem {
   id: string
@@ -61,8 +61,8 @@ const ARCHIVE_YAW = THREE.MathUtils.degToRad(6)
 const ARCHIVE_ELEVATION = THREE.MathUtils.degToRad(5)
 const ARCHIVE_DISTANCE = 66
 const ARCHIVE_SPAN = 16
-const DETAIL_SPAN = 6.5
-const DETAIL_DISTANCE = 12
+const DETAIL_SPAN = 7.5
+const DETAIL_DISTANCE = 15
 const ARCHIVE_AIM = new THREE.Vector3(0, CARD_Y + 0.4, 0)
 /** 纵深窗口整体后移，避免最近行过度逼近相机 */
 const ROW_Z_OFFSET = -2.5
@@ -97,9 +97,15 @@ export class ArchiveWallScene {
 
   private cases: CaseMaterials
   private atlas: CoverAtlas
-  private coverMaterial: THREE.MeshLambertMaterial
+  /** 封面实例按图集页拆分（每页独立材质/纹理） */
+  private coverPages: Array<{
+    mesh: THREE.InstancedMesh
+    material: THREE.MeshLambertMaterial
+    /** 该页承载的 cell 索引（静态） */
+    cells: number[]
+  }> = []
+  private cellPage: number[] = []
   private glassMesh: THREE.InstancedMesh
-  private coverMesh: THREE.InstancedMesh
   private cells: Cell[] = []
   private itemUrls: string[]
   private hemi: THREE.HemisphereLight
@@ -191,15 +197,29 @@ export class ArchiveWallScene {
     this.glassMesh.castShadow = true
     this.scene.add(this.glassMesh)
 
-    const coverGeo = new THREE.PlaneGeometry(COVER.width, COVER.height)
-    coverGeo.translate(0, 0, COVER.z)
-    const coverTiles = new Float32Array(count * 4)
-    coverGeo.setAttribute('coverTile', new THREE.InstancedBufferAttribute(coverTiles, 4))
-    this.atlas = new CoverAtlas(this.renderer.capabilities.maxTextureSize, Math.max(16, opts.items.length))
-    this.coverMaterial = createCoverMaterial(this.atlas.texture)
-    this.coverMesh = new THREE.InstancedMesh(coverGeo, this.coverMaterial, count)
-    this.coverMesh.frustumCulled = false
-    this.scene.add(this.coverMesh)
+    this.atlas = new CoverAtlas(this.renderer.capabilities.maxTextureSize, opts.items.length)
+    // 封面实例按图集页分组：cell.itemIndex 静态决定其归属页
+    const pageCells: number[][] = Array.from({ length: this.atlas.pageCount }, () => [])
+    this.cellPage = new Array(this.cells.length).fill(0)
+    this.cells.forEach((cell, i) => {
+      const page = Math.min(this.atlas.pageCount - 1, Math.floor(cell.itemIndex / ATLAS_PAGE_CAPACITY))
+      this.cellPage[i] = page
+      pageCells[page]!.push(i)
+    })
+    const coverGeoProto = new THREE.PlaneGeometry(COVER.width, COVER.height)
+    coverGeoProto.translate(0, 0, COVER.z)
+    this.coverPages = pageCells.map((cells, page) => {
+      const geo = coverGeoProto.clone()
+      const tiles = new Float32Array(cells.length * 4)
+      geo.setAttribute('coverTile', new THREE.InstancedBufferAttribute(tiles, 4))
+      const material = createCoverMaterial(this.atlas.textureOf(page)!)
+      const mesh = new THREE.InstancedMesh(geo, material, Math.max(1, cells.length))
+      mesh.frustumCulled = false
+      mesh.count = cells.length
+      this.scene.add(mesh)
+      return { mesh, material, cells }
+    })
+    coverGeoProto.dispose()
 
     this.hemi = new THREE.HemisphereLight('#fffaf5', '#b49b80', 0.65)
     this.scene.add(this.hemi)
@@ -267,19 +287,21 @@ export class ArchiveWallScene {
     }
   }
 
-  /** 把图集瓦片同步到全部实例的 coverTile 属性 */
+  /** 把图集瓦片同步到各页实例的 coverTile 属性 */
   private syncCoverTiles(): void {
-    const attr = this.coverMesh.geometry.getAttribute('coverTile') as THREE.InstancedBufferAttribute
-    const array = attr.array as Float32Array
-    this.cells.forEach((cell, i) => {
-      const tile = this.atlas.tileOf(cell.itemIndex)
-      if (!tile) return
-      array[i * 4] = tile.offsetX
-      array[i * 4 + 1] = tile.offsetY
-      array[i * 4 + 2] = tile.scaleX
-      array[i * 4 + 3] = tile.scaleY
-    })
-    attr.needsUpdate = true
+    for (const { mesh, cells } of this.coverPages) {
+      const attr = mesh.geometry.getAttribute('coverTile') as THREE.InstancedBufferAttribute
+      const array = attr.array as Float32Array
+      cells.forEach((cellIndex, local) => {
+        const tile = this.atlas.tileOf(this.cells[cellIndex]!.itemIndex)
+        if (!tile) return
+        array[local * 4] = tile.offsetX
+        array[local * 4 + 1] = tile.offsetY
+        array[local * 4 + 2] = tile.scaleX
+        array[local * 4 + 3] = tile.scaleY
+      })
+      attr.needsUpdate = true
+    }
   }
 
   private buildComposer(): void {
@@ -518,7 +540,7 @@ export class ArchiveWallScene {
       const uniforms = (this.bokeh as unknown as { uniforms?: Record<string, { value?: number } | undefined> })
         .uniforms ?? {}
       if (uniforms.focus) uniforms.focus.value = Math.max(1, -local.z)
-      if (uniforms.aperture) uniforms.aperture.value = THREE.MathUtils.lerp(0.0003, 0.0008, detail)
+      if (uniforms.aperture) uniforms.aperture.value = THREE.MathUtils.lerp(0.0003, 0.0011, detail)
     }
 
     // 脉冲推进
@@ -530,6 +552,7 @@ export class ArchiveWallScene {
     const selectedSlot =
       this.selectedCell && this.selectedItem !== null ? this.cells.indexOf(this.selectedCell) : -1
     const bootWave = (1 - smooth((time - BOOT_WAVE_END + 1.5) / 1.5)) * smooth((time - 0.15) / 0.4)
+    const coverCursor = new Array(this.coverPages.length).fill(0)
 
     this.cells.forEach((cell, i) => {
       const laneDelta = nearestOccurrence(cell.laneIdx, Math.round(this.shoulder.value), POOL_LANES) - cell.laneIdx
@@ -564,11 +587,13 @@ export class ArchiveWallScene {
       this.one.setScalar(hide)
       this.m4.compose(this.pos, this.quat, this.one)
       this.glassMesh.setMatrixAt(i, this.m4)
-      this.coverMesh.setMatrixAt(i, this.m4)
+      const page = this.cellPage[i]!
+      this.coverPages[page]!.mesh.setMatrixAt(coverCursor[page]!, this.m4)
+      coverCursor[page]! += 1
     })
 
     this.glassMesh.instanceMatrix.needsUpdate = true
-    this.coverMesh.instanceMatrix.needsUpdate = true
+    for (const { mesh } of this.coverPages) mesh.instanceMatrix.needsUpdate = true
 
     this.updateHover()
     this.updateSelectedGroup()
@@ -601,8 +626,17 @@ export class ArchiveWallScene {
       return
     }
     this.raycaster.setFromCamera(this.pointer, this.camera)
-    const hits = this.raycaster.intersectObject(this.coverMesh, false)
-    const id = hits.length > 0 ? (hits[0]!.instanceId ?? null) : null
+    const hits = this.raycaster.intersectObjects(
+      this.coverPages.map((p) => p.mesh),
+      false
+    )
+    const hit = hits[0]
+    let id: number | null = null
+    if (hit) {
+      const page = this.coverPages.findIndex((p) => p.mesh === hit.object)
+      const local = hit.instanceId ?? null
+      if (page >= 0 && local !== null) id = this.coverPages[page]!.cells[local] ?? null
+    }
     this.hoveredInstance = id
     this.renderer.domElement.style.cursor = id !== null ? 'pointer' : 'grab'
   }
@@ -682,7 +716,7 @@ export class ArchiveWallScene {
     this.listeners = []
     const box = this.renderer.domElement.parentElement
     this.atlas.dispose()
-    this.coverMaterial.dispose()
+    for (const { material } of this.coverPages) material.dispose()
     this.heroTexture?.dispose()
     this.cases.dispose()
     this.scene.traverse((obj) => {

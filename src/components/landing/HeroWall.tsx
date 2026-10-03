@@ -19,17 +19,20 @@ const FALLBACK_SAMPLES = [
   'huawei', 'panasonic', 'olympus', 'ricoh', 'dji', 'insta360'
 ] as const
 
+/** 墙面格位上限（9 lanes × 48 rows） */
+const WALL_CAPACITY = 432
+
 interface SampleEntry {
   id: string
   file: string
 }
 
-async function loadSampleList(): Promise<Array<{ id: string; file: string }>> {
+async function loadSampleList(): Promise<Array<SampleEntry>> {
   try {
-      const res = await fetch('/samples/manifest.json', { cache: 'no-cache' })
+    const res = await fetch('/samples/manifest.json', { cache: 'no-cache' })
     if (res.ok) {
       const manifest = (await res.json()) as SampleEntry[]
-      if (Array.isArray(manifest) && manifest.length >= 4) return manifest.slice(0, 48)
+      if (Array.isArray(manifest) && manifest.length >= 4) return manifest.slice(0, WALL_CAPACITY)
     }
   } catch {
     /* manifest 缺失走兜底 */
@@ -37,16 +40,10 @@ async function loadSampleList(): Promise<Array<{ id: string; file: string }>> {
   return FALLBACK_SAMPLES.map((id) => ({ id, file: `${id}.jpg` }))
 }
 
-interface SampleFrame {
-  id: string
-  blob: Blob
-  url: string
-  meta: PhotoMeta
-}
-
 /**
- * 落地页 3D 影像档案墙：玻璃卡片箱 + 波场丝滑动效（Rhine-Music-Demo 移植），
- * 样片原图先上墙、水印实渲后渐进升级纹理；背景音乐节拍驱动波场律动。
+ * 落地页 3D 影像档案墙：磨砂玻璃档案盒 + 纵深巷道丝滑动效（Rhine-Music-Demo 移植）。
+ * 流式加载：manifest 就绪即建墙，封面图集按到达顺序逐张上墙；
+ * 元数据懒加载（选中才取 EXIF）；样片水印实渲后渐进升级墙面纹理。
  */
 export function HeroWall() {
   const t = useTranslations()
@@ -55,53 +52,31 @@ export function HeroWall() {
   const transitionRef = useRef<SurfaceTransition | null>(null)
   const sceneRef = useRef<ArchiveWallScene | null>(null)
   const engineRef = useRef<BeatEngine | null>(null)
-  const blobCacheRef = useRef(new Map<string, Blob>())
 
-  const [frames, setFrames] = useState<SampleFrame[]>([])
-  /** 全部样片加载完成（建墙/水印升级的唯一门） */
-  const [samplesReady, setSamplesReady] = useState(false)
+  const [entries, setEntries] = useState<SampleEntry[]>([])
+  const [metaMap, setMetaMap] = useState<Map<string, PhotoMeta>>(new Map())
   const [selected, setSelected] = useState<number | null>(null)
   const [musicOn, setMusicOn] = useState(false)
   const [hasUserTrack, setHasUserTrack] = useState(false)
 
-  /* ── 样片加载（manifest 优先，原图 + EXIF） ── */
+  /* ── 样片清单（仅 manifest，秒级） ── */
   useEffect(() => {
     let cancelled = false
     void (async () => {
       const list = await loadSampleList()
-      const loaded: SampleFrame[] = []
-      for (const entry of list) {
-        try {
-          const res = await fetch(`/samples/${entry.file}`)
-          const blob = await res.blob()
-          const meta = await readPhotoMeta(blob)
-          if (cancelled) return
-          blobCacheRef.current.set(entry.id, blob)
-          loaded.push({ id: entry.id, blob, url: URL.createObjectURL(blob), meta })
-          setFrames([...loaded])
-        } catch {
-          /* 单张失败跳过 */
-        }
-      }
-      if (!cancelled && loaded.length > 0) setSamplesReady(true)
+      if (!cancelled && list.length > 0) setEntries(list)
     })()
     return () => {
       cancelled = true
     }
   }, [])
 
-  /* ── 场景构建（全部样片就绪后一次） ── */
+  /* ── 场景构建（manifest 就绪即建；封面由场景自行流式填充） ── */
   useEffect(() => {
-    if (!containerRef.current || !samplesReady || sceneRef.current) return
+    if (!containerRef.current || entries.length === 0 || sceneRef.current) return
     const scene = new ArchiveWallScene({
       container: containerRef.current,
-      items: frames.map((f) => ({
-        id: f.id,
-        url: f.url,
-        model: f.meta.modelPretty,
-        params: formatParams(f.meta),
-        date: f.meta.dateTimeOriginal ? formatDate(f.meta.dateTimeOriginal) : undefined
-      })),
+      items: entries.map((e) => ({ id: e.id, url: `/samples/${e.file}` })),
       reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       theme: ((document.documentElement.dataset.theme as 'night' | 'day') ?? 'night'),
       quality: window.innerWidth < 900 || window.innerWidth * window.devicePixelRatio > 3200 ? 'performance' : 'high',
@@ -129,7 +104,70 @@ export function HeroWall() {
       scene.dispose()
       sceneRef.current = null
     }
-  }, [samplesReady]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [entries.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── 水印实渲 → 原位升级墙面纹理；顺带缓存 EXIF（详情卡懒加载秒开） ── */
+  useEffect(() => {
+    if (entries.length === 0 || !sceneRef.current) return
+    let cancelled = false
+    const metas = new Map(metaMap)
+    void (async () => {
+      const pool = getRenderPool()
+      const template = {
+        ...BUILTIN_TEMPLATES[0]!,
+        typography: { ...BUILTIN_TEMPLATES[0]!.typography, scale: 1.35 }
+      }
+      for (const [index, entry] of entries.entries()) {
+        if (cancelled || !sceneRef.current) return
+        try {
+          const res = await fetch(`/samples/${entry.file}`)
+          const blob = await res.blob()
+          const meta = await readPhotoMeta(blob)
+          if (cancelled) return
+          if (!metas.has(entry.id)) {
+            metas.set(entry.id, meta)
+            setMetaMap(new Map(metas))
+          }
+          const rendered = await pool.run({
+            kind: 'preview',
+            file: new File([blob], entry.file, { type: 'image/jpeg' }),
+            meta,
+            template,
+            maxLongEdge: 1024
+          })
+          if (cancelled) return
+          if (rendered.ok && rendered.kind === 'preview') {
+            sceneRef.current.upgradeItem(index, URL.createObjectURL(rendered.blob))
+          }
+        } catch {
+          /* 单张失败保留原图 */
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [entries.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── 选中卡元数据懒加载（未命中缓存时） ── */
+  useEffect(() => {
+    if (selected === null) return
+    const entry = entries[selected]
+    if (!entry || metaMap.has(entry.id)) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/samples/${entry.file}`)
+        const meta = await readPhotoMeta(await res.blob())
+        if (!cancelled) setMetaMap((prev) => new Map(prev).set(entry.id, meta))
+      } catch {
+        /* 读取失败保持占位 */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selected, entries, metaMap])
 
   /* ── 主题联动：昼夜切换时同步墙面氛围 ── */
   useEffect(() => {
@@ -142,40 +180,6 @@ export function HeroWall() {
     observer.observe(el, { attributes: true, attributeFilter: ['data-theme'] })
     return () => observer.disconnect()
   }, [])
-
-  /* ── 水印实渲 → 原位升级墙面纹理（产品自我演示） ── */
-  useEffect(() => {
-    if (!samplesReady || !sceneRef.current) return
-    let cancelled = false
-    void (async () => {
-      const pool = getRenderPool()
-      const template = {
-        ...BUILTIN_TEMPLATES[0]!,
-        typography: { ...BUILTIN_TEMPLATES[0]!.typography, scale: 1.35 }
-      }
-      for (const [index, frame] of frames.entries()) {
-        if (cancelled || !sceneRef.current) return
-        try {
-          const res = await pool.run({
-            kind: 'preview',
-            file: new File([frame.blob], `${frame.id}.jpg`, { type: 'image/jpeg' }),
-            meta: frame.meta,
-            template,
-            maxLongEdge: 1024
-          })
-          if (cancelled) return
-          if (res.ok && res.kind === 'preview') {
-            sceneRef.current.upgradeItem(index, URL.createObjectURL(res.blob))
-          }
-        } catch {
-          /* 升级失败保留原图 */
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [samplesReady, frames.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 背景音乐 + 节拍律动 ── */
   const startMusic = useCallback(async (): Promise<boolean> => {
@@ -250,8 +254,9 @@ export function HeroWall() {
     }
   }
 
-  const selectedFrame = selected !== null ? frames[selected] : undefined
-  const brand = selectedFrame ? matchBrand(selectedFrame.meta.make, selectedFrame.meta.model) : undefined
+  const selectedEntry = selected !== null ? entries[selected] : undefined
+  const selectedMeta = selectedEntry ? metaMap.get(selectedEntry.id) : undefined
+  const brand = selectedMeta ? matchBrand(selectedMeta.make, selectedMeta.model) : undefined
 
   return (
     <div className="relative h-[86vh] min-h-[540px] w-full overflow-hidden border-b border-line">
@@ -294,24 +299,24 @@ export function HeroWall() {
       {/* 底部提示 / 详情档案卡（SurfaceTransition 可打断过渡） */}
       <div className="pointer-events-none absolute bottom-8 left-1/2 z-10 w-[min(560px,90vw)] -translate-x-1/2">
         <div ref={calloutRef} className="pointer-events-auto" style={{ visibility: 'hidden' }}>
-          {selectedFrame ? (
+          {selectedEntry ? (
             <div className="border border-line bg-panel p-4" style={{ boxShadow: 'var(--shadow-pop)' }}>
               <div className="rule-heavy flex items-baseline justify-between pb-2">
                 <span className="text-[11px] tracking-[2px] text-muted">
                   FRAME {String((selected ?? 0) + 1).padStart(3, '0')}
                 </span>
                 <span className="text-[11px] text-muted">
-                  {brand?.name ?? selectedFrame.meta.make ?? '—'}
+                  {brand?.name ?? selectedMeta?.make ?? '—'}
                 </span>
               </div>
               <p className="mt-2 text-[16px] font-semibold">
-                {selectedFrame.meta.modelPretty ?? '—'}
+                {selectedMeta?.modelPretty ?? '—'}
               </p>
               <p className="mt-0.5 text-[12px] tabular-nums text-muted">
                 {[
-                  formatParams(selectedFrame.meta),
-                  selectedFrame.meta.dateTimeOriginal
-                    ? formatDate(selectedFrame.meta.dateTimeOriginal)
+                  selectedMeta ? formatParams(selectedMeta) : undefined,
+                  selectedMeta?.dateTimeOriginal
+                    ? formatDate(selectedMeta.dateTimeOriginal)
                     : undefined
                 ]
                   .filter(Boolean)
@@ -335,7 +340,7 @@ export function HeroWall() {
             </div>
           ) : null}
         </div>
-        {!selectedFrame ? (
+        {!selectedEntry ? (
           <p className="text-center text-[11px] tracking-[2px] text-muted">
             {t('landing.browsableHint').toUpperCase()}
           </p>
