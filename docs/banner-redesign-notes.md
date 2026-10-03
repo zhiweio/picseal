@@ -333,6 +333,8 @@ blur.json 的文字槽位带 `trim: true`——**墨迹语义**：机型/参数�
 1. **预览管线改无损 PNG**：预览 blob 此前为 JPEG q0.9（4:2:0 色度抽样）——文字边缘发糊+锯齿感的元凶（semi-utils 参照为 quality 95 + 无色度抽样）。`render.worker` 预览改 `image/png` 无损输出（本地 blob，尺寸可接受）；导出仍按用户所选格式/质量。
 2. **图注按 normal2 语义重做**：右下角**单行橙色**（232,141,52）、Light 字重、无投影——“机型 + 间隔 + 时间”一行式。为此 `resolveField` 新增**复合令牌**支持（`"$model    $datetime"` 逐令牌解析、字面间隔保留，单令牌行为不变）；`CornerStyle.allSub`（全行副字重）贯通 types/schema/drawCorner。caption 模板：position bottom-right、sizeRatio 0.03、textShadow false、allSub true、lines `["$model    $datetime"]`、字体普惠体（官方 normal2 回退链首选 AlibabaPuHuiTi Light）。
 3. 验证：P24（实时页面）单行橙色右下、文字锐利；测试 104/104 ✅。
+4. **logo 消失修复**（用户验收反馈：pica 内核后所有横幅 logo 不显示）：`drawImageSmoothed` 的 pica 分支在 worker 内对 **ImageBitmap 源**（logo）初始化/缩放失败返回 null 时直接跳过绘制——logo 全部丢失（文字块为 OffscreenCanvas 源不受影响）。修复：pica 仅用于 OffscreenCanvas 源；**ImageBitmap（logo）走渐进半缩**；pica 失败一律回退半缩而非丢弃。实测 logo 恢复 ✓（提交 385ef9d）。
+
 ### 5.8 清晰度内核：渐进式半缩降采样（用户验收反馈：仍模糊有锯齿，要求深入对比源码）
 
 **机理结论**（semi-utils 源码 vs 浏览器渲染）：semi 的精致来自 `512px 渲染 → 单次 Pillow LANCZOS`——LANCZOS 是真正的窗口 sinc 重采样，任意缩小比例都做全核加权平均；而浏览器 `drawImage` 在 **>2× 单步缩小**走 mipmap/线性采样路径，不做全核重采样——我们 400px 墨迹块直接落位 66px（7×）、logo 2048→126（16×），细笔画欠采样即"锯齿+发虚"。**Canvas 不是天生缺陷，是我们漏掉了重采样步骤**；Pillow 类前端库（pica/WebGL Lanczos）可作后备，但零依赖的**渐进式半缩**（每次恰 2× 高质量平均，多级叠加）即可达到同量级观感。
