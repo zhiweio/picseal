@@ -29,7 +29,7 @@ pnpm build:wasm   # 重建 EXIF WASM 产物（需本机 wasm-pack，平时不用
 ## 设计与代码规范
 
 - 视觉唯一依据 [DESIGN.md](DESIGN.md)（RhineLab 终端风）：`border-radius: 0`、1px `var(--line)` 规则线、双语微标签（`中文 / ENGLISH`）、状态灯 `.status-dot`；禁用字中点「·」、破折号标签、箭头链接等生成味手法。主题经 CSS 变量 + `data-theme` 切换，夜色默认，650ms token 插值，动效全程尊重 `prefers-reduced-motion`。
-- 8 款模板的横幅排版度量逐项移植自 semi-utils 的 `WatermarkFilter`。改横幅 / 模板排版前先读 `docs/banner-layout-audit.md`（现状 15 项问题清单）与 `docs/banner-redesign-notes.md`（设计方案与参照基准），勿凭感觉重排。
+- 8 款模板的横幅排版度量逐项移植自 semi-utils 的 `WatermarkFilter`。改横幅 / 模板排版前先读 `docs/banner-redesign-notes.md`（设计方案与参照基准），勿凭感觉重排。
 - tsconfig 开启 `noUncheckedIndexedAccess`，索引访问需判空。
 
 ## 构建陷阱
