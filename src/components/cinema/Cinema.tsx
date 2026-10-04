@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import clsx from 'clsx'
-import { ArrowLeft, Clapperboard, Download, Film, Music4, Square, Upload } from 'lucide-react'
+import { ArrowLeft, Clapperboard, Download, Film, Link2, Music4, Square, Upload } from 'lucide-react'
 import type { CinemaScene } from '@/three/cinema/scene'
 import type { PlaybackResult, PlaybackStatus } from '@/core/cinema/engine'
 import { CinemaEngine, pickRecordingMime, summarizeSpan } from '@/core/cinema/engine'
@@ -18,6 +18,7 @@ import { usePreferences } from '@/stores/preferences'
 import { renderMiniPreview } from '@/hooks/usePreview'
 import { getRenderPool } from '@/workers/pool'
 import { BigCount, Panel, StatusDot, TermButton } from '@/components/ui/primitives'
+import { RemoteMediaDialog } from '@/components/ui/RemoteMediaDialog'
 import { LangToggle, ThemeToggle } from '@/components/Toggles'
 import { PhotoPicker } from './PhotoPicker'
 
@@ -42,6 +43,8 @@ export function Cinema() {
   const toggleMedia = usePreferences((s) => s.toggleCinemaMedia)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [picked, setPicked] = useState<string[] | null>(null)
+  /** 网络素材导入弹窗目标（null = 关闭） */
+  const [urlMedia, setUrlMedia] = useState<'intro' | 'music' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [webglFailed, setWebglFailed] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -339,10 +342,10 @@ export function Cinema() {
     [onUpload]
   )
 
-  const importMedia = useCallback(
-    async (key: string, file: File | undefined) => {
-      if (!file) return
-      await saveUserMedia(key, file)
+  /** 落盘 → 重新解析素材 → 上状态；失败上抛（网络导入弹窗靠它内联报错） */
+  const importMediaStrict = useCallback(
+    async (key: string, blob: Blob) => {
+      await saveUserMedia(key, blob)
       for (const url of mediaUrlsRef.current) URL.revokeObjectURL(url)
       const next = await resolveCinemaMedia()
       mediaUrlsRef.current = next.objectUrls
@@ -350,6 +353,18 @@ export function Cinema() {
       setNotice(t('media.loaded'))
     },
     [t]
+  )
+
+  const importMedia = useCallback(
+    async (key: string, blob: Blob | undefined) => {
+      if (!blob) return
+      try {
+        await importMediaStrict(key, blob)
+      } catch {
+        setNotice(t('media.loadFailed'))
+      }
+    },
+    [importMediaStrict, t]
   )
 
   useEffect(() => {
@@ -594,6 +609,25 @@ export function Cinema() {
                   />
                 </label>
               </div>
+              {/* 网络直链导入：https 校验先行，失败在弹窗内联提示 */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUrlMedia('intro')}
+                  className="flex h-8 flex-1 items-center justify-center gap-1.5 border border-line text-[11px] text-muted transition-colors hover:border-ink hover:text-ink"
+                >
+                  <Link2 size={11} />
+                  {t('media.loadIntroUrl')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUrlMedia('music')}
+                  className="flex h-8 flex-1 items-center justify-center gap-1.5 border border-line text-[11px] text-muted transition-colors hover:border-ink hover:text-ink"
+                >
+                  <Link2 size={11} />
+                  {t('media.loadMusicUrl')}
+                </button>
+              </div>
               <p className="text-[10px] leading-relaxed text-muted">
                 {t('media.creditNote')}{' '}
                 <a href="/cinema/CREDITS.md" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-ink">
@@ -642,6 +676,19 @@ export function Cinema() {
           setPicked(ids)
           setPickerOpen(false)
         }}
+      />
+
+      {/* 网络素材导入弹窗（开场视频 / 配乐共用，错误内联提示） */}
+      <RemoteMediaDialog
+        key={urlMedia ?? 'url-closed'}
+        open={urlMedia !== null}
+        kind={urlMedia === 'music' ? 'audio' : 'video'}
+        title={urlMedia === 'music' ? t('media.urlMusicTitle') : t('media.urlIntroTitle')}
+        titleEn={urlMedia === 'music' ? t('media.urlMusicTitleEn') : t('media.urlIntroTitleEn')}
+        onClose={() => setUrlMedia(null)}
+        onImported={(blob) =>
+          importMediaStrict(urlMedia === 'music' ? CINEMA_MEDIA_KEYS.music : CINEMA_MEDIA_KEYS.intro, blob)
+        }
       />
     </div>
   )

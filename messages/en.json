@@ -29,7 +29,15 @@
     "startCta": "Drop photos to start",
     "footerRepo": "Source Code",
     "footerDeploy": "Self-host",
-    "skipIntro": "Skip"
+    "skipIntro": "Skip",
+    "bgm": {
+      "sourceDefault": "BGM · Komiku (CC0)",
+      "sourceUser": "BGM · Custom track",
+      "buttonHint": "Change BGM: local file or https URL, kept in this browser only",
+      "title": "Change BGM",
+      "titleEn": "BGM SOURCE",
+      "localPick": "Choose a local audio file"
+    }
   },
   "studio": {
     "title": "Studio",
@@ -198,6 +206,13 @@
       "musicFallback": "Score · CC0 fallback (Komiku)",
       "loadIntro": "Load opening clip",
       "loadMusic": "Load score",
+      "loadIntroUrl": "Intro from URL",
+      "loadMusicUrl": "Score from URL",
+      "loadFailed": "Failed to load media",
+      "urlIntroTitle": "Remote opening clip",
+      "urlIntroTitleEn": "REMOTE INTRO",
+      "urlMusicTitle": "Remote score",
+      "urlMusicTitleEn": "REMOTE MUSIC",
       "on": "ON",
       "off": "OFF",
       "introDisabled": "Opening clip disabled",
@@ -257,6 +272,33 @@
     "center-logo": {
       "name": "Center Mark",
       "nameEn": "CENTER MARK"
+    }
+  },
+  "mediaUrl": {
+    "localLabel": "Local file",
+    "localLabelEn": "LOCAL FILE",
+    "urlLabel": "Remote URL",
+    "urlLabelEn": "REMOTE URL",
+    "placeholderAudio": "https://example.com/music.mp3",
+    "placeholderVideo": "https://example.com/intro.mp4",
+    "hint": "https:// direct links only; media is downloaded in your browser and stored locally (IndexedDB) — never uploaded. The host must allow CORS.",
+    "import": "Check & import",
+    "importing": "Checking & downloading…",
+    "cancel": "Cancel",
+    "limitAudio": "30 MB",
+    "limitVideo": "256 MB",
+    "kindAudio": "audio",
+    "kindVideo": "video",
+    "error": {
+      "invalidUrl": "Invalid URL — an https:// direct link is required",
+      "unreachable": "Cannot reach this URL (network error, or the host disallows cross-origin access / CORS)",
+      "timeout": "Connection timed out, please retry",
+      "notFound": "Resource not found (404) — please check the URL",
+      "serverError": "Origin server error (HTTP {status})",
+      "badType": "This URL is not {kind} content",
+      "tooLarge": "File exceeds the {limit} size limit",
+      "saveFailed": "Downloaded, but writing to browser storage failed",
+      "unknown": "Import failed, please retry"
     }
   },
   "common": {

@@ -12,6 +12,7 @@ import { DocumentDecryption } from '@/three/wall/document-decryption'
 import { SCAN_CORNERS, SCAN_FROM, SCAN_TO, type DecryptionFrame } from '@/three/wall/decryption'
 import { CARD } from '@/three/wall/card'
 import { BeatEngine, loadUserTrack, saveUserTrack } from '@/three/audio/beat'
+import { RemoteMediaDialog } from '@/components/ui/RemoteMediaDialog'
 import { usePreferences } from '@/stores/preferences'
 import { readPhotoMeta, formatParams, formatDate } from '@/core/exif/reader'
 import { BUILTIN_TEMPLATES } from '@/core/templates/builtin'
@@ -106,6 +107,7 @@ export function HeroWall() {
   const [browsed, setBrowsed] = useState(0)
   const [musicOn, setMusicOn] = useState(false)
   const [hasUserTrack, setHasUserTrack] = useState(false)
+  const [bgmOpen, setBgmOpen] = useState(false)
   const [webglFailed, setWebglFailed] = useState(false)
 
   /** 水印成品（itemIndex → blob URL）：实演循环与焦点预取共同填充 */
@@ -462,12 +464,14 @@ export function HeroWall() {
     }
   }, [startMusic])
 
-  const onPickUserTrack = async (file: File | undefined): Promise<void> => {
-    if (!file) return
-    await saveUserTrack(file).catch(() => undefined)
+  /** 本地文件 / 网络链接共用：落盘 IndexedDB + 立即接管播放；落盘失败上抛给弹窗内联提示 */
+  const applyUserTrack = async (blob: Blob): Promise<void> => {
+    await saveUserTrack(blob).catch(() => {
+      throw new Error(t('mediaUrl.error.saveFailed'))
+    })
     setHasUserTrack(true)
     if (engineRef.current) {
-      await engineRef.current.setTrack(file)
+      await engineRef.current.setTrack(blob)
       if (!engineRef.current.playing) await startMusic()
     }
   }
@@ -541,24 +545,21 @@ export function HeroWall() {
           type="button"
           onClick={() => void startMusic()}
           className="flex min-h-[44px] items-center gap-1.5 border border-line bg-panel/80 px-2.5 text-[10px] tracking-[1px] text-muted backdrop-blur-sm transition-colors hover:border-ink hover:text-ink"
-          title={hasUserTrack ? 'BGM · 自备音源' : 'BGM · Komiku (CC0)'}
+          title={t(hasUserTrack ? 'landing.bgm.sourceUser' : 'landing.bgm.sourceDefault')}
         >
           {musicOn ? <Volume2 size={12} className="text-accent" /> : <VolumeX size={12} />}
           {musicOn ? 'ON' : 'OFF'}
         </button>
-        <label
-          className="flex min-h-[44px] cursor-pointer items-center gap-1.5 border border-line bg-panel/80 px-2.5 text-[10px] tracking-[1px] text-muted backdrop-blur-sm transition-colors hover:border-ink hover:text-ink"
-          title="载入你自己的音乐（如 Radical Face — Welcome Home, Son），仅存本地浏览器"
+        {/* 更换音源：合并弹窗（本地文件 / https 网络直链，校验失败内联提示） */}
+        <button
+          type="button"
+          onClick={() => setBgmOpen(true)}
+          className="flex min-h-[44px] items-center gap-1.5 border border-line bg-panel/80 px-2.5 text-[10px] tracking-[1px] text-muted backdrop-blur-sm transition-colors hover:border-ink hover:text-ink"
+          title={t('landing.bgm.buttonHint')}
         >
           <Music4 size={12} />
           <Upload size={10} />
-          <input
-            type="file"
-            accept="audio/*"
-            hidden
-            onChange={(e) => void onPickUserTrack(e.target.files?.[0])}
-          />
-        </label>
+        </button>
       </div>
 
       {/* 详情档案卡：桌面右侧竖排，竖屏/紧凑为底部面板（跟随 data-layout）。
@@ -613,6 +614,22 @@ export function HeroWall() {
           {t('landing.browsableHint').toUpperCase()}
         </p>
       ) : null}
+
+      {/* 更换背景音乐弹窗：本地文件 + https 网络音源（校验失败在弹窗内联提示） */}
+      <RemoteMediaDialog
+        key={bgmOpen ? 'bgm-open' : 'bgm-closed'}
+        open={bgmOpen}
+        kind="audio"
+        title={t('landing.bgm.title')}
+        titleEn={t('landing.bgm.titleEn')}
+        onClose={() => setBgmOpen(false)}
+        onImported={applyUserTrack}
+        localFile={{
+          accept: 'audio/*',
+          label: t('landing.bgm.localPick'),
+          onPick: (file) => applyUserTrack(file)
+        }}
+      />
     </div>
   )
 }

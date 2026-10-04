@@ -29,7 +29,15 @@
     "startCta": "拖入照片开始",
     "footerRepo": "开源代码",
     "footerDeploy": "自托管",
-    "skipIntro": "跳过"
+    "skipIntro": "跳过",
+    "bgm": {
+      "sourceDefault": "BGM · Komiku (CC0)",
+      "sourceUser": "BGM · 自备音源",
+      "buttonHint": "更换背景音乐：本地文件或 https 直链，仅存本机浏览器",
+      "title": "更换背景音乐",
+      "titleEn": "BGM SOURCE",
+      "localPick": "选择本地音频文件"
+    }
   },
   "studio": {
     "title": "工作台",
@@ -198,6 +206,13 @@
       "musicFallback": "配乐 · CC0 回退（Komiku）",
       "loadIntro": "载入开场视频",
       "loadMusic": "载入配乐",
+      "loadIntroUrl": "链接导入开场",
+      "loadMusicUrl": "链接导入配乐",
+      "loadFailed": "素材载入失败",
+      "urlIntroTitle": "导入网络开场",
+      "urlIntroTitleEn": "REMOTE INTRO",
+      "urlMusicTitle": "导入网络配乐",
+      "urlMusicTitleEn": "REMOTE MUSIC",
       "on": "开",
       "off": "关",
       "introDisabled": "开场片段已停用",
@@ -257,6 +272,33 @@
     "center-logo": {
       "name": "居中标识",
       "nameEn": "CENTER MARK"
+    }
+  },
+  "mediaUrl": {
+    "localLabel": "本地文件",
+    "localLabelEn": "LOCAL FILE",
+    "urlLabel": "网络链接",
+    "urlLabelEn": "REMOTE URL",
+    "placeholderAudio": "https://example.com/music.mp3",
+    "placeholderVideo": "https://example.com/intro.mp4",
+    "hint": "仅支持 https:// 直链；素材在浏览器下载后只存本机（IndexedDB），不经过任何服务器。源站需允许跨域访问（CORS）。",
+    "import": "校验并导入",
+    "importing": "校验下载中…",
+    "cancel": "取消",
+    "limitAudio": "30 MB",
+    "limitVideo": "256 MB",
+    "kindAudio": "音频",
+    "kindVideo": "视频",
+    "error": {
+      "invalidUrl": "链接格式无效，需要以 https:// 开头的直链",
+      "unreachable": "无法访问该链接（网络错误，或源站不允许跨域访问 CORS）",
+      "timeout": "连接超时，请重试",
+      "notFound": "资源不存在（404），请检查链接",
+      "serverError": "源服务器返回错误（HTTP {status}）",
+      "badType": "该链接不是{kind}文件",
+      "tooLarge": "文件超过 {limit} 大小上限",
+      "saveFailed": "素材已下载，但写入浏览器存储失败",
+      "unknown": "导入失败，请重试"
     }
   },
   "common": {
