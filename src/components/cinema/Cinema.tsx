@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import clsx from 'clsx'
-import { ArrowLeft, Clapperboard, Download, Film, Link2, Music4, Square, Upload } from 'lucide-react'
+import { ArrowLeft, Clapperboard, Download, Film, Music4, Square, Upload } from 'lucide-react'
 import type { CinemaScene } from '@/three/cinema/scene'
 import type { PlaybackResult, PlaybackStatus } from '@/core/cinema/engine'
 import { CinemaEngine, pickRecordingMime, summarizeSpan } from '@/core/cinema/engine'
@@ -19,6 +19,7 @@ import { renderMiniPreview } from '@/hooks/usePreview'
 import { getRenderPool } from '@/workers/pool'
 import { BigCount, Panel, StatusDot, TermButton } from '@/components/ui/primitives'
 import { RemoteMediaDialog } from '@/components/ui/RemoteMediaDialog'
+import { CreditsDialog } from './CreditsDialog'
 import { LangToggle, ThemeToggle } from '@/components/Toggles'
 import { PhotoPicker } from './PhotoPicker'
 
@@ -43,8 +44,9 @@ export function Cinema() {
   const toggleMedia = usePreferences((s) => s.toggleCinemaMedia)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [picked, setPicked] = useState<string[] | null>(null)
-  /** 网络素材导入弹窗目标（null = 关闭） */
-  const [urlMedia, setUrlMedia] = useState<'intro' | 'music' | null>(null)
+  /** 更换素材弹窗目标（本地文件 / https 直链合并弹窗；null = 关闭） */
+  const [mediaSlot, setMediaSlot] = useState<'intro' | 'music' | null>(null)
+  const [creditsOpen, setCreditsOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [webglFailed, setWebglFailed] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -342,7 +344,7 @@ export function Cinema() {
     [onUpload]
   )
 
-  /** 落盘 → 重新解析素材 → 上状态；失败上抛（网络导入弹窗靠它内联报错） */
+  /** 落盘 → 重新解析素材 → 上状态；失败上抛（弹窗靠它内联报错），成功出「素材已载入」提示 */
   const importMediaStrict = useCallback(
     async (key: string, blob: Blob) => {
       await saveUserMedia(key, blob)
@@ -353,18 +355,6 @@ export function Cinema() {
       setNotice(t('media.loaded'))
     },
     [t]
-  )
-
-  const importMedia = useCallback(
-    async (key: string, blob: Blob | undefined) => {
-      if (!blob) return
-      try {
-        await importMediaStrict(key, blob)
-      } catch {
-        setNotice(t('media.loadFailed'))
-      }
-    },
-    [importMediaStrict, t]
   )
 
   useEffect(() => {
@@ -587,52 +577,34 @@ export function Cinema() {
                 </p>
                 <MediaSwitch on={mediaToggles.music} onToggle={() => toggleMedia('music')} />
               </div>
+              {/* 更换素材：与 landing 更换背景音乐一致 —— 点击开合并弹窗（本地文件 / https 直链，校验失败内联提示） */}
               <div className="mt-1 flex gap-2">
-                <label className="flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 border border-line text-[11px] text-muted transition-colors hover:border-ink hover:text-ink">
-                  <Upload size={11} />
-                  {t('media.loadIntro')}
-                  <input
-                    type="file"
-                    accept="video/mp4,video/quicktime"
-                    hidden
-                    onChange={(e) => void importMedia(CINEMA_MEDIA_KEYS.intro, e.target.files?.[0])}
-                  />
-                </label>
-                <label className="flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 border border-line text-[11px] text-muted transition-colors hover:border-ink hover:text-ink">
-                  <Music4 size={11} />
-                  {t('media.loadMusic')}
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    hidden
-                    onChange={(e) => void importMedia(CINEMA_MEDIA_KEYS.music, e.target.files?.[0])}
-                  />
-                </label>
-              </div>
-              {/* 网络直链导入：https 校验先行，失败在弹窗内联提示 */}
-              <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setUrlMedia('intro')}
+                  onClick={() => setMediaSlot('intro')}
                   className="flex h-8 flex-1 items-center justify-center gap-1.5 border border-line text-[11px] text-muted transition-colors hover:border-ink hover:text-ink"
                 >
-                  <Link2 size={11} />
-                  {t('media.loadIntroUrl')}
+                  <Upload size={11} />
+                  {t('media.loadIntro')}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setUrlMedia('music')}
+                  onClick={() => setMediaSlot('music')}
                   className="flex h-8 flex-1 items-center justify-center gap-1.5 border border-line text-[11px] text-muted transition-colors hover:border-ink hover:text-ink"
                 >
-                  <Link2 size={11} />
-                  {t('media.loadMusicUrl')}
+                  <Music4 size={11} />
+                  {t('media.loadMusic')}
                 </button>
               </div>
               <p className="text-[10px] leading-relaxed text-muted">
                 {t('media.creditNote')}{' '}
-                <a href="/cinema/CREDITS.md" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-ink">
+                <button
+                  type="button"
+                  onClick={() => setCreditsOpen(true)}
+                  className="underline underline-offset-2 transition-colors hover:text-ink"
+                >
                   {t('media.credit')}
-                </a>
+                </button>
               </p>
             </div>
           </Panel>
@@ -678,18 +650,27 @@ export function Cinema() {
         }}
       />
 
-      {/* 网络素材导入弹窗（开场视频 / 配乐共用，错误内联提示） */}
+      {/* 更换素材弹窗（开场视频 / 配乐共用：本地文件 + https 网络直链，错误内联提示） */}
       <RemoteMediaDialog
-        key={urlMedia ?? 'url-closed'}
-        open={urlMedia !== null}
-        kind={urlMedia === 'music' ? 'audio' : 'video'}
-        title={urlMedia === 'music' ? t('media.urlMusicTitle') : t('media.urlIntroTitle')}
-        titleEn={urlMedia === 'music' ? t('media.urlMusicTitleEn') : t('media.urlIntroTitleEn')}
-        onClose={() => setUrlMedia(null)}
+        key={mediaSlot ?? 'media-closed'}
+        open={mediaSlot !== null}
+        kind={mediaSlot === 'music' ? 'audio' : 'video'}
+        title={mediaSlot === 'music' ? t('media.dialogMusicTitle') : t('media.dialogIntroTitle')}
+        titleEn={mediaSlot === 'music' ? t('media.dialogMusicTitleEn') : t('media.dialogIntroTitleEn')}
+        onClose={() => setMediaSlot(null)}
         onImported={(blob) =>
-          importMediaStrict(urlMedia === 'music' ? CINEMA_MEDIA_KEYS.music : CINEMA_MEDIA_KEYS.intro, blob)
+          importMediaStrict(mediaSlot === 'music' ? CINEMA_MEDIA_KEYS.music : CINEMA_MEDIA_KEYS.intro, blob)
         }
+        localFile={{
+          accept: mediaSlot === 'music' ? 'audio/*' : 'video/mp4,video/quicktime',
+          label: mediaSlot === 'music' ? t('media.localMusicPick') : t('media.localIntroPick'),
+          onPick: (file) =>
+            importMediaStrict(mediaSlot === 'music' ? CINEMA_MEDIA_KEYS.music : CINEMA_MEDIA_KEYS.intro, file)
+        }}
       />
+
+      {/* 版权说明预览（站内渲染 markdown，取代新开裸链接） */}
+      <CreditsDialog open={creditsOpen} onClose={() => setCreditsOpen(false)} />
     </div>
   )
 }
