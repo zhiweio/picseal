@@ -31,11 +31,17 @@ export interface RenderedGeometry {
   photoRect: { x: number; y: number; w: number; h: number }
 }
 
+export interface RenderedOutput {
+  canvas: OffscreenCanvas
+  /** 照片在输出画布中的实际绘制矩形（canvas 像素），供 A/B 原图层对位 */
+  photoRect: RenderedGeometry['photoRect']
+}
+
 /**
  * 水印渲染入口 —— 输入已按 EXIF 方向摆正的位图，输出合成后的 OffscreenCanvas。
  * 纯 Canvas API，无 DOM 依赖；worker 与主线程均可运行。
  */
-export async function renderPhoto(input: RenderInput): Promise<OffscreenCanvas> {
+export async function renderPhoto(input: RenderInput): Promise<RenderedOutput> {
   const { photo, meta, template, options } = input
   const fontDef = getFontFamily(template.typography.font)
 
@@ -102,24 +108,23 @@ export async function renderPhoto(input: RenderInput): Promise<OffscreenCanvas> 
 
   switch (template.layout) {
     case 'banner':
-      drawFlatWithBanner(ctx, photo, template, lines, logo, g, typography, zMark, bannerHScaled)
-      break
+      return {
+        canvas,
+        photoRect: drawFlatWithBanner(ctx, photo, template, lines, logo, g, typography, zMark, bannerHScaled)
+      }
     case 'card':
       if (template.canvas.mount === 'blur') {
-        drawFrostedCard(ctx, photo, template, lines, g, s, typography, zMark)
-      } else {
-        drawMountedCard(ctx, photo, template, lines, logo, g, typography, zMark, bannerHScaled)
+        return { canvas, photoRect: drawFrostedCard(ctx, photo, template, lines, g, s, typography, zMark) }
       }
-      break
+      return {
+        canvas,
+        photoRect: drawMountedCard(ctx, photo, template, lines, logo, g, typography, zMark, bannerHScaled)
+      }
     case 'corner':
-      drawFlatWithCorner(ctx, photo, template, lines, g, typography)
-      break
+      return { canvas, photoRect: drawFlatWithCorner(ctx, photo, template, lines, g, typography) }
     case 'center-logo':
-      drawFlatWithCenterLogo(ctx, photo, template, logo, g, bannerHScaled)
-      break
+      return { canvas, photoRect: drawFlatWithCenterLogo(ctx, photo, template, logo, g, bannerHScaled) }
   }
-
-  return canvas
 }
 
 type Typography = {
@@ -345,7 +350,7 @@ function drawFlatWithBanner(
   typography: Typography,
   zMark: { color?: string; family: ReturnType<typeof getFontFamily>['id'] } | undefined,
   bannerH: number
-): void {
+): RenderedGeometry['photoRect'] {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
   drawPhotoRounded(ctx, photo, g.photoRect, radius, 0)
@@ -365,6 +370,7 @@ function drawFlatWithBanner(
       Math.min(1, typography.scale)
     )
   }
+  return g.photoRect
 }
 
 function drawMountedCard(
@@ -377,7 +383,7 @@ function drawMountedCard(
   typography: Typography,
   zMark: { color?: string; family: ReturnType<typeof getFontFamily>['id'] } | undefined,
   bannerH: number
-): void {
+): RenderedGeometry['photoRect'] {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
   drawPhotoRounded(ctx, photo, g.photoRect, radius, t.canvas.shadow ? g.width * 0.012 : 0)
@@ -398,6 +404,7 @@ function drawMountedCard(
       Math.min(1, typography.scale)
     )
   }
+  return g.photoRect
 }
 
 /**
@@ -416,7 +423,7 @@ function drawFrostedCard(
   s: number,
   typography: Typography,
   zMark?: { color?: string; family: ReturnType<typeof getFontFamily>['id'] }
-): void {
+): RenderedGeometry['photoRect'] {
   const model = lines.centerTitle || lines.centerCaption
   const params = lines.centerCaption !== model ? lines.centerCaption : ''
   const layout = computeFrostedLayout(photo.width, photo.height, !!model, !!params, {
@@ -494,6 +501,8 @@ function drawFrostedCard(
       paramsColor: ensureContrastColor('#ffffff', textLuma)
     }
   )
+  // 实际绘制的清晰照片矩形（135% 构图内居中），非 g.photoRect
+  return photoRect
 }
 
 function drawFlatWithCorner(
@@ -503,7 +512,7 @@ function drawFlatWithCorner(
   lines: ResolvedLines,
   g: RenderedGeometry,
   typography: Typography
-): void {
+): RenderedGeometry['photoRect'] {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
   drawPhotoRounded(ctx, photo, g.photoRect, radius, 0)
@@ -518,6 +527,7 @@ function drawFlatWithCorner(
     typography.mainWeight,
     typography.subWeight
   )
+  return g.photoRect
 }
 
 /** 居中标识 —— semi-utils center_logo 语义：白底横幅带 + 仅一个品牌 logo 居中（无文字/无遮罩） */
@@ -528,7 +538,7 @@ function drawFlatWithCenterLogo(
   logo: ImageBitmap | null,
   g: RenderedGeometry,
   bannerH: number
-): void {
+): RenderedGeometry['photoRect'] {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
   drawPhotoRounded(ctx, photo, g.photoRect, radius, 0)
@@ -541,6 +551,7 @@ function drawFlatWithCenterLogo(
     const logoW = logoH * (logo.width / logo.height)
     drawImageSmoothed(ctx, logo, g.width / 2 - logoW / 2, strip.y + (strip.h - logoH) / 2, logoW, logoH)
   }
+  return g.photoRect
 }
 
 function supportsFilter(ctx: Ctx2D): boolean {

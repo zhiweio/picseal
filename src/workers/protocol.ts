@@ -50,6 +50,8 @@ export type WorkerResponse =
       blob: Blob
       width: number
       height: number
+      /** 照片在输出画布中的实际绘制矩形（canvas 像素），A/B 原图层对位用 */
+      photoRect: { x: number; y: number; w: number; h: number }
     }
   | {
       id: string

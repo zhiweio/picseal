@@ -6,6 +6,7 @@ import clsx from 'clsx'
 import { usePhotos } from '@/stores/photos'
 import { useSettings } from '@/stores/settings'
 import { usePreview } from '@/hooks/usePreview'
+import { abOverlayStyle } from '@/lib/ab-overlay'
 import { formatDate } from '@/core/exif/reader'
 
 /** 中央画布舞台：预览 + 对焦框角标 + A/B 对比滑块 + 缩放平移 */
@@ -62,6 +63,8 @@ export function Stage() {
   }
 
   const meta = photo.meta
+  const overlayStyle =
+    comparing && originalUrl && preview ? abOverlayStyle(preview, compare, template) : null
 
   return (
     <div
@@ -105,15 +108,15 @@ export function Stage() {
             </div>
           )}
 
-          {comparing && originalUrl && preview ? (
+          {overlayStyle && originalUrl ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={originalUrl}
                 alt="original"
                 draggable={false}
-                className="absolute inset-0 h-full w-full select-none object-contain"
-                style={{ clipPath: `inset(0 0 0 ${compare}%)` }}
+                className="absolute select-none"
+                style={overlayStyle}
               />
               <div
                 className="absolute inset-y-0 z-10 w-[1px] bg-accent"

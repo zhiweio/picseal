@@ -52,7 +52,7 @@ async function handlePreview(
   setResizeKernel(resizeKernel ?? 'halving')
   await ensureResizeKernelReady()
   const bitmap = await decode(file)
-  const canvas = await renderPhoto({
+  const { canvas, photoRect } = await renderPhoto({
     photo: bitmap,
     meta,
     template,
@@ -64,7 +64,7 @@ async function handlePreview(
   await flushPicaDraws()
   // 预览用无损 PNG：JPEG 4:2:0 色度抽样会让文字边缘发糊/锯齿（对比 semi-utils quality95+4:4:4）
   const blob = await canvasToBlob(canvas, 'png')
-  post({ id, ok: true, kind: 'preview', blob, width: canvas.width, height: canvas.height })
+  post({ id, ok: true, kind: 'preview', blob, width: canvas.width, height: canvas.height, photoRect })
 }
 
 function outputName(
@@ -90,7 +90,7 @@ async function handleExport(req: Extract<WorkerRequest, { kind: 'export' }>): Pr
   setResizeKernel(req.resizeKernel ?? 'halving')
   await ensureResizeKernelReady()
   const bitmap = await decode(file)
-  const canvas = await renderPhoto({
+  const { canvas } = await renderPhoto({
     photo: bitmap,
     meta,
     template,

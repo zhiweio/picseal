@@ -11,6 +11,8 @@ export interface PreviewResult {
   url: string
   width: number
   height: number
+  /** 照片在输出画布中的实际绘制矩形（canvas 像素），A/B 原图层对位用 */
+  photoRect: { x: number; y: number; w: number; h: number }
 }
 
 /** 预览结果 LRU：键 photoId+templateJson，最多 12 条；URL 由缓存独占管理 */
@@ -75,7 +77,12 @@ export function usePreview(
         .then((res) => {
           if (gen !== generation.current) return // 过期结果丢弃
           if (res.ok && res.kind === 'preview') {
-            const value = { url: URL.createObjectURL(res.blob), width: res.width, height: res.height }
+            const value = {
+              url: URL.createObjectURL(res.blob),
+              width: res.width,
+              height: res.height,
+              photoRect: res.photoRect
+            }
             cache.set(key, value)
             setPreview(value)
           }
