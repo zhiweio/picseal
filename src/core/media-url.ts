@@ -5,9 +5,19 @@
  * 未设置时原样返回，本地 public/ 兜底（Docker 镜像仍自带全部媒体）。
  * 用户照片 / 作品集永远不走此路径（隐私红线：照片永不上传）。
  */
+
+/** 需要保持新鲜的清单/署名小文件：始终由应用自身分发（no-cache 协商），
+ *  不进 CDN——强缓存层会重写其 Cache-Control，卡住样片墙顺序更新 */
+const APP_SERVED = new Set([
+  '/samples/manifest.json',
+  '/cinema/CREDITS.md',
+  '/audio/CREDITS.md'
+])
+
 const MEDIA_BASE = (process.env.NEXT_PUBLIC_MEDIA_BASE ?? '').replace(/\/+$/, '')
 
 export function mediaUrl(path: string): string {
+  if (APP_SERVED.has(path)) return path
   if (!MEDIA_BASE || !path.startsWith('/') || path.startsWith('/_next/')) return path
   return MEDIA_BASE + path
 }

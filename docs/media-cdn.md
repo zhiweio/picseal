@@ -12,14 +12,18 @@
 
 | 资源 | 桶内前缀 | 缓存策略 |
 | --- | --- | --- |
-| 样片 JPG | `samples/` | immutable 1 年 |
-| 样片清单 | `samples/manifest.json` | no-cache（墙顺序更新即时生效） |
-| 水印字体 | `fonts/` | immutable 1 年 |
-| 品牌 logo | `brands/` | immutable 1 年 |
-| 放映室影音 | `cinema/` | immutable 1 年 |
-| 署名文档 | `cinema/CREDITS.md`、`audio/CREDITS.md` | no-cache |
-| 落地页 BGM | `audio/` | immutable 1 年 |
-| 3D 模型 | `assets/` | immutable 1 年（GLB 带 `?v=` 哈希） |
+| 样片 JPG | `samples/` | immutable 1 年（CDN） |
+| 样片清单 | `samples/manifest.json` | **由应用自身分发**（no-cache，CDN 强缓存层会重写头卡住更新） |
+| 水印字体 | `fonts/` | immutable 1 年（CDN） |
+| 品牌 logo | `brands/` | immutable 1 年（CDN） |
+| 放映室影音 | `cinema/` | immutable 1 年（CDN） |
+| 署名文档 | `cinema/CREDITS.md`、`audio/CREDITS.md` | **由应用自身分发**（no-cache） |
+| 落地页 BGM | `audio/` | immutable 1 年（CDN） |
+| 3D 模型 | `assets/` | immutable 1 年（CDN，GLB 带 `?v=` 哈希） |
+
+`mediaUrl()` 对 manifest/CREDITS 一律不改写（`APP_SERVED` 白名单），桶内副本仅作灾备。
+边缘缓存：zone 上有两条 Cache Rules——`manifest/CREDITS` 旁路；其余 media 主机
+Eligible for cache（否则 `.glb`/`.m4a` 不在 Cloudflare 默认扩展名清单，进不了边缘缓存）。
 
 桶：`picseal-media`（Account `1a2be850ec8c4b3d5ea917c9636b7d72`）。
 CORS：`origins ["*"]`、`methods [GET, HEAD]`、`headers [range, content-type]`、`max_age_seconds 86400`
@@ -47,9 +51,11 @@ Zone Cache Purge 权限的 token 调 `POST /zones/{zone_id}/purge_cache`。
 
 1. 建桶：`POST /accounts/{id}/r2/buckets`（locationHint apac）
 2. CORS：`wrangler r2 bucket cors set picseal-media --file <rules>`（注意 R2 用小写 `allowed` 嵌套格式，非 AWS 风格）
-3. 挂自定义域：`PUT /accounts/{id}/r2/buckets/picseal-media/domains/custom/media.zhiweio.me`
-4. DNS：zone 内手动/API 建 `media` CNAME → `1a2be850ec8c4b3d5ea917c9636b7d72.r2.cloudflarestorage.com`，**开启橙云（proxied）**
+3. DNS：zone 建 `media` CNAME → `1a2be850ec8c4b3d5ea917c9636b7d72.r2.cloudflarestorage.com`，**开启橙云（proxied）**
    （R2 自定义域必须走 Cloudflare 代理才有边缘缓存与 TLS）
+4. 挂自定义域（注意：**POST**、body 为驼峰字段 `zoneId`/`minTLS`，下划线字段会被静默忽略导致挂载空成功）：
+   `POST /accounts/{id}/r2/buckets/picseal-media/domains/custom` + `{"domain":"media.zhiweio.me","enabled":true,"zoneId":"<zone id>"}`
+   挂载后 `GET .../domains/custom` 应出现该域，`status.ssl` 从 initializing 变为 ready 即生效
 5. 上传：`pnpm sync:media --apply`
 
 ## 验证要点

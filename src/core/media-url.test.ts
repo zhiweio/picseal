@@ -35,4 +35,12 @@ describe('mediaUrl', () => {
     const { mediaUrl } = await import('./media-url')
     expect(mediaUrl('/_next/static/chunks/app.js')).toBe('/_next/static/chunks/app.js')
   })
+
+  it('manifest 与署名文档始终由应用自身分发（不走 CDN，保新鲜）', async () => {
+    vi.stubEnv('NEXT_PUBLIC_MEDIA_BASE', 'https://media.zhiweio.me')
+    const { mediaUrl } = await import('./media-url')
+    expect(mediaUrl('/samples/manifest.json')).toBe('/samples/manifest.json')
+    expect(mediaUrl('/cinema/CREDITS.md')).toBe('/cinema/CREDITS.md')
+    expect(mediaUrl('/audio/CREDITS.md')).toBe('/audio/CREDITS.md')
+  })
 })
