@@ -110,6 +110,15 @@ export function Stage() {
 
           {overlayStyle && originalUrl ? (
             <>
+              {/* 分割线右侧垫装裱底色：与处理后画布的衬纸同色，原图区外呈"未印水印的纸面"
+                  而非深色空洞；圆角缺口两侧颜色也因此一致 */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  backgroundColor: template.canvas.mountColor,
+                  clipPath: `inset(0 0 0 ${compare}%)`
+                }}
+              />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={originalUrl}

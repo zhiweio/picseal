@@ -22,10 +22,12 @@ const pct = (v: number): string => `${round4(v)}%`
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v))
 
 /**
- * A/B 原图层样式：原图按渲染管线输出的 photoRect 精确覆盖照片区域，
- * 画布装饰（横幅条/装裱底/补边）不设原图，两侧连续显示同一处理后画布。
+ * A/B 原图层样式：原图按渲染管线输出的 photoRect 精确覆盖照片区域。
+ * 分割线右侧的画布装饰（横幅条/模糊背景/装裱底/补边）是水印新增物，
+ * 原图中不存在 —— 由调用方在原图层之下垫模板 mountColor 底色遮蔽，
+ * 呈现为"未印水印的同一张衬纸"，任何滑块位置整幅图都完整闭合。
  * 分割线位置（compare，占整幅画布宽的百分比）换算到图层局部坐标后再裁切，
- * 保证分割线扫过横幅/补边区域时两侧仍是一条连续直线。
+ * 保证扫过装饰区时两侧始终是一条连续直线。
  */
 export function abOverlayStyle(
   box: OverlayBox,
