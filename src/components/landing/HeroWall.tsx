@@ -18,6 +18,7 @@ import { readPhotoMeta, formatParams, formatDate } from '@/core/exif/reader'
 import { BUILTIN_TEMPLATES } from '@/core/templates/builtin'
 import { matchBrand } from '@/core/brands'
 import { sortByCaptureTime } from '@/core/order'
+import { mediaUrl } from '@/core/media-url'
 import { ArchiveEntry } from '@/components/landing/ArchiveEntry'
 import { ArchiveIntakeModal } from '@/components/landing/ArchiveIntakeModal'
 import { getRenderPool } from '@/workers/pool'
@@ -258,7 +259,7 @@ export function HeroWall() {
     return sampleList.map((e) => ({
       id: e.id,
       name: e.file,
-      url: `/samples/${e.file}`,
+      url: mediaUrl(`/samples/${e.file}`),
       kind: 'sample'
     }))
   }, [admitted, portfolioCommitted, sampleList]) // eslint-disable-line react-hooks/exhaustive-deps

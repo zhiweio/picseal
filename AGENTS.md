@@ -36,7 +36,8 @@ pnpm build:wasm   # 重建 EXIF WASM 产物（需本机 wasm-pack，平时不用
 
 - dev 与生产用**不同产物目录**：`next dev` 写 `.next-dev`，生产写 `.next`——避免运行中的 `next start` 因 chunks 被改写而报 Cannot find module。不要合并两者。
 - Docker 镜像需 `BUILD_STANDALONE=1 pnpm build`（standalone 输出供 Dockerfile COPY）；本地构建保持默认输出，`next start` 才能直接运行。
-- `/samples` `/brands` `/fonts` `/wasm` 静态资源带 immutable 缓存头；更新这些目录的内容时要换文件名（带版本/哈希），否则用户拿不到新资源。
+- `/samples` `/brands` `/fonts` `/cinema` `/audio` `/assets` 静态资源带 immutable 缓存头；更新这些目录的内容时要换文件名（带版本/哈希），否则用户拿不到新资源。
+- 演示媒体可整体走 Cloudflare R2 CDN（`media.zhiweio.me`）：构建期注入 `NEXT_PUBLIC_MEDIA_BASE` 生效，不设置则用 `public/` 本地兜底；媒体 URL 一律经 `src/core/media-url.ts` 的 `mediaUrl()` 解析，勿写死绝对 CDN 地址。媒体变更后跑 `pnpm sync:media --apply` 同步到桶，详见 [docs/media-cdn.md](docs/media-cdn.md)。
 - 字体子集由 `scripts/build-fonts.mjs` + `subset_fonts.py` 生成，产物在 `public/fonts/`，许可文本在 `public/fonts/licenses/`。
 
 ## 内置样片

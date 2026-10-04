@@ -29,6 +29,11 @@ rust/exif-writer/pkg
 .DS_Store
 *.sw?
 
+# secrets / env（.env.example 例外，作模板入库）
+.env
+.env.*
+!.env.example
+
 # misc
 .vercel
 stats.html

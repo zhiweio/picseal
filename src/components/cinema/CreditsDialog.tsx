@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { RefreshCw, X } from 'lucide-react'
 import { parseMarkdown, type MdBlock, type MdInline } from '@/lib/markdown'
+import { mediaUrl } from '@/core/media-url'
 import { StatusDot, TermButton } from '@/components/ui/primitives'
 
 /**
@@ -118,7 +119,7 @@ export function CreditsDialog({ open, onClose, file = '/cinema/CREDITS.md' }: {
     if (!open) return
     let cancelled = false
     setState({ status: 'loading' })
-    fetch(file, { cache: 'no-cache' })
+    fetch(mediaUrl(file), { cache: 'no-cache' })
       .then((res) => {
         if (!res.ok) throw new Error(String(res.status))
         return res.text()

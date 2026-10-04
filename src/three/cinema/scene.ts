@@ -18,6 +18,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { configurePhotoGlass, createHeroPrintMaterial } from '../wall/materials'
 import { loadCaseTemplate } from '../wall/card'
+import { mediaUrl } from '@/core/media-url'
 import { CardAppearance } from '../wall/glass'
 import { SelectionLighting } from '../wall/lighting'
 import { damp, smooth, spring, type Spring } from '../wall/motion'
@@ -388,7 +389,7 @@ export class CinemaScene {
   private async loadProjector(): Promise<void> {
     // Eumig 高精 GLB（art/prepare_projector_glb.py 归一化）：保留层级与原始 PBR 材质，
     // 仅提升环境反射强度；旋转件按归一化时的命名钩子查找（盘轴沿 X，绕自身 X 自转）。
-    const gltf = await new GLTFLoader().loadAsync(CINEMA_PROJECTOR_ASSET)
+    const gltf = await new GLTFLoader().loadAsync(mediaUrl(CINEMA_PROJECTOR_ASSET))
     if (this.disposed) return
     const root = gltf.scene
     const rig: ProjectorRig = { root, reelSupply: null, reelTakeup: null, focusRing: null }

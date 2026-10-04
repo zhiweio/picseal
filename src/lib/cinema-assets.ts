@@ -1,6 +1,7 @@
 'use client'
 
 import { createStore, get, set, type UseStore } from 'idb-keyval'
+import { mediaUrl } from '@/core/media-url'
 
 /**
  * 放映室媒体解析 —— 三级来源：
@@ -56,9 +57,9 @@ export interface ResolvedCinemaMedia {
   objectUrls: string[]
 }
 
-const INTRO_BUNDLED = '/cinema/intro.mp4'
-const MUSIC_BUNDLED = '/cinema/welcome-home.m4a'
-const MUSIC_FALLBACK = '/audio/bgm.mp3'
+const INTRO_BUNDLED = mediaUrl('/cinema/intro.mp4')
+const MUSIC_BUNDLED = mediaUrl('/cinema/welcome-home.m4a')
+const MUSIC_FALLBACK = mediaUrl('/audio/bgm.mp3')
 
 export async function resolveCinemaMedia(): Promise<ResolvedCinemaMedia> {
   const objectUrls: string[] = []

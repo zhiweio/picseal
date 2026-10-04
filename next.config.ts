@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   serverExternalPackages: [],
   headers: async () => [
+    // 本地兜底路径的 immutable 缓存（生产可整体切到 R2 CDN，见 docs/media-cdn.md）；
+    // 内容更新必须换文件名（样片名/GLB 的 ?v= 哈希），否则客户端拿不到新资源
     {
       source: '/samples/:path*',
       headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }]
@@ -27,7 +29,15 @@ const nextConfig: NextConfig = {
       headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }]
     },
     {
-      source: '/wasm/:path*',
+      source: '/cinema/:path*',
+      headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }]
+    },
+    {
+      source: '/audio/:path*',
+      headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }]
+    },
+    {
+      source: '/assets/:path*',
       headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }]
     }
   ]

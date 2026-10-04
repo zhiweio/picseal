@@ -6,6 +6,7 @@
  * 同一横幅/文字列内所有行共享同一字号，行盒内垂直居中落基线。
  */
 import { getFontFamily, type FontFamilyId } from '../fonts/registry'
+import { mediaUrl } from '../media-url'
 
 export type Ctx2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
 
@@ -37,7 +38,7 @@ export class FontBook {
   private async load(cssName: string, weight: number, url: string): Promise<void> {
     const key = `${cssName}:${weight}:${url}`
     if (this.loaded.has(key)) return
-    const res = await fetch(url)
+    const res = await fetch(mediaUrl(url))
     if (!res.ok) throw new Error(`font fetch failed: ${url}`)
     const buf = await res.arrayBuffer()
     const face = new FontFace(cssName, buf, { weight: String(weight) })
@@ -63,7 +64,7 @@ export class LogoBook {
     if (hit) return hit
     try {
       // no-cache：协商缓存——素材更新后立即生效（logo 曾因陈旧缓存渲染旧版被压扁）
-      const res = await fetch(url, { cache: 'no-cache' })
+      const res = await fetch(mediaUrl(url), { cache: 'no-cache' })
       if (!res.ok) return undefined
       const blob = await res.blob()
       const bmp = await createImageBitmap(blob)

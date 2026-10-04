@@ -6,6 +6,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { PHOTO_CASE_ASSET } from './asset'
+import { mediaUrl } from '@/core/media-url'
 import { configurePhotoGlass } from './materials'
 
 export const CARD = {
@@ -49,7 +50,7 @@ let templatePromise: Promise<CaseTemplate> | null = null
 
 export function loadCaseTemplate(): Promise<CaseTemplate> {
   templatePromise ??= new GLTFLoader()
-    .loadAsync(PHOTO_CASE_ASSET)
+    .loadAsync(mediaUrl(PHOTO_CASE_ASSET))
     .then((gltf) => {
       gltf.scene.updateMatrixWorld(true)
       const parts: CasePart[] = []

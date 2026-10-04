@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
-    "build:wasm": "node scripts/build-wasm.mjs"
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "sync:media": "node scripts/sync-media-r2.mjs"
   },
   "dependencies": {
     "@radix-ui/react-slider": "^1.2.3",

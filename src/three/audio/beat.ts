@@ -8,6 +8,7 @@
  */
 
 import { createStore, del, get, set, type UseStore } from 'idb-keyval'
+import { mediaUrl } from '@/core/media-url'
 
 export interface BeatEngineOptions {
   /** 默认内置曲目 URL */
@@ -77,7 +78,7 @@ export class BeatEngine {
     this.audio = new Audio()
     this.audio.loop = true
     this.audio.crossOrigin = 'anonymous'
-    this.audio.src = this.opts.defaultSrc ?? '/audio/bgm.mp3'
+    this.audio.src = this.opts.defaultSrc ?? mediaUrl('/audio/bgm.mp3')
     this.source = this.ctx.createMediaElementSource(this.audio)
     this.analyser = this.ctx.createAnalyser()
     this.analyser.fftSize = 1024
