@@ -228,7 +228,7 @@ export function Cinema() {
   }, [activeItems, template, phase])
 
   /* ── 受映卡待机海报：首张的水印合成图完整内接（letterbox），失败回退原片封面。
-      done 阶段不覆盖——幕面驻留 END 卡 ── */
+      done 阶段不覆盖——幕面驻留 FIN 卡 ── */
 
   useEffect(() => {
     if (activeItems.length === 0 || phase === 'preparing' || phase === 'running' || phase === 'done') return
@@ -307,9 +307,6 @@ export function Cinema() {
       setPhase('preparing')
       setResult(null)
       const texts = {
-        titleMain: t('film.titleMain'),
-        titleSub: t('film.titleSub'),
-        titleInfo: summarizeSpan(activeItems),
         outroMain: t('film.outroMain'),
         outroSub: summarizeSpan(activeItems),
         outroCredit: 'PICSEAL PROJECTION ROOM'

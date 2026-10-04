@@ -1,7 +1,7 @@
 /**
  * 放映室时间轴 —— 纯逻辑，零 DOM / 零 canvas 依赖（绘制薄层在 engine）。
  *
- * 结构：开场视频段 → 片头卡 → 照片×N（Ken Burns 推拉 + 交叉溶解）→ 谢幕卡。
+ * 结构：开场视频段（可选）→ 照片×N（Ken Burns 推拉 + 交叉溶解）→ 谢幕卡。
  * 段与段以 CROSSFADE 重叠排布；frameAt(t) 产出有序图层（含透明度与裁剪参数），
  * engine 只做 drawImage / fillText。照片选取三态（不足 / 恰好 / 超量）与
  * 等距采样（手挑器预选）也在此层，vitest 直测。
@@ -23,8 +23,7 @@ export const CINEMA_FPS = 30
 /** 单张照片时长（秒）与相邻照片交叉溶解宽度（秒） */
 export const CINEMA_PHOTO_SECONDS = 4.5
 export const CINEMA_CROSSFADE = 0.8
-/** 片头卡 / 谢幕卡时长 */
-export const CINEMA_TITLE_SECONDS = 4
+/** 谢幕卡时长 */
 export const CINEMA_OUTRO_SECONDS = 6
 /** 配乐淡入 / 淡出（秒）—— 跟随片长策略 */
 export const CINEMA_MUSIC_FADE_IN = 1.6
@@ -192,10 +191,6 @@ export interface IntroSegment extends SegmentBase {
   kind: 'intro'
 }
 
-export interface TitleSegment extends SegmentBase {
-  kind: 'title'
-}
-
 export interface PhotoSegment extends SegmentBase {
   kind: 'photo'
   /** 在 photos 数组中的序号（Ken Burns 相位与胶片帧联动用） */
@@ -208,14 +203,14 @@ export interface OutroSegment extends SegmentBase {
   kind: 'outro'
 }
 
-export type Segment = IntroSegment | TitleSegment | PhotoSegment | OutroSegment
+export type Segment = IntroSegment | PhotoSegment | OutroSegment
 
 export interface CinemaTimeline {
   segments: Segment[]
   /** 成片总时长（秒） */
   duration: number
   photoCount: number
-  /** 配乐起点（片头卡开始）/ 终点（谢幕结束）—— 跟随片长策略 */
+  /** 配乐起点（照片段起，片头存在时与其尾帧重叠）/ 终点（谢幕结束）—— 跟随片长策略 */
   musicStart: number
   musicEnd: number
   /** 开场段时长（0 = 无开场素材） */
@@ -227,53 +222,48 @@ export interface TimelineOptions {
   introSeconds?: number
   photoSeconds?: number
   crossfade?: number
-  titleSeconds?: number
   outroSeconds?: number
 }
 
-/** 组装时间轴：段间以 crossfade 重叠，musicStart 起于片头卡 */
+/** 组装时间轴：段间以 crossfade 重叠，片头播完照片直接开演（无开幕卡），musicStart 起于照片段 */
 export function buildTimeline(photos: readonly TimelinePhoto[], opts: TimelineOptions = {}): CinemaTimeline {
   const intro = Math.max(0, opts.introSeconds ?? 0)
   const photoDur = opts.photoSeconds ?? CINEMA_PHOTO_SECONDS
   const xfade = Math.min(opts.crossfade ?? CINEMA_CROSSFADE, photoDur / 2, intro || Infinity)
-  const titleDur = opts.titleSeconds ?? CINEMA_TITLE_SECONDS
   const outroDur = opts.outroSeconds ?? CINEMA_OUTRO_SECONDS
 
   const segments: Segment[] = []
-  let cursor = 0
 
   if (intro > 0) {
     segments.push({ kind: 'intro', start: 0, duration: intro })
-    cursor = intro
   }
-
-  const title: TitleSegment = { kind: 'title', start: Math.max(0, cursor - (intro > 0 ? xfade : 0)), duration: titleDur }
-  segments.push(title)
-  const musicStart = title.start
-
-  cursor = title.start
+  // 首张照片与片头尾帧溶解衔接；无片头则从 0 起黑场淡入开场
+  const photosStart = intro > 0 ? intro - xfade : 0
+  let lastStart = photosStart
   photos.forEach((photo, index) => {
-    const seg: PhotoSegment = {
+    const start = photosStart + index * (photoDur - xfade)
+    segments.push({
       kind: 'photo',
-      start: cursor + (index === 0 ? titleDur - xfade : photoDur - xfade),
+      start,
       duration: photoDur,
       index,
       photo,
       kb: kenburnsPlan(index)
-    }
-    segments.push(seg)
-    cursor = seg.start
+    })
+    lastStart = start
   })
-  const lastPhotoEnd = photos.length > 0 ? cursor + photoDur : title.start + titleDur
+  // 无照片时片头完整播完再谢幕
+  const photosEnd = photos.length > 0 ? lastStart + photoDur : intro
+  const outroStart = Math.max(0, photosEnd - xfade)
 
-  segments.push({ kind: 'outro', start: lastPhotoEnd - xfade, duration: outroDur })
+  segments.push({ kind: 'outro', start: outroStart, duration: outroDur })
 
   return {
     segments,
-    duration: lastPhotoEnd - xfade + outroDur,
+    duration: outroStart + outroDur,
     photoCount: photos.length,
-    musicStart,
-    musicEnd: lastPhotoEnd - xfade + outroDur,
+    musicStart: photosStart,
+    musicEnd: outroStart + outroDur,
     introSeconds: intro
   }
 }
@@ -286,7 +276,7 @@ export interface DrawLayer {
   alpha: number
   /** photo 段的字幕透明度（与图层独立：进场后浮现、出场前隐去） */
   captionAlpha: number
-  /** photo 段的 Ken Burns 当前状态（intro/title/outro 段无意义） */
+  /** photo 段的 Ken Burns 当前状态（intro/outro 段无意义） */
   kb?: KenburnsState
 }
 

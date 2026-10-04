@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PhotoMeta } from '../types'
 import {
+  CINEMA_CROSSFADE,
   CINEMA_MAX_PHOTOS,
   CINEMA_MIN_PHOTOS,
   buildTimeline,
@@ -98,13 +99,16 @@ describe('sampleEvenly', () => {
 describe('buildTimeline', () => {
   const photos = Array.from({ length: 20 }, (_, i) => photo(`p${i}`))
 
-  it('有开场：段序 intro→title→photo×N→outro，段间 crossfade 重叠', () => {
+  it('有开场：段序 intro→photo×N→outro，首张与片头尾帧溶解、段间 crossfade 重叠', () => {
     const tl = buildTimeline(photos, { introSeconds: 38.8 })
     const kinds = tl.segments.map((s) => s.kind)
     expect(kinds[0]).toBe('intro')
-    expect(kinds[1]).toBe('title')
+    expect(kinds[1]).toBe('photo')
     expect(kinds.filter((k) => k === 'photo')).toHaveLength(20)
     expect(kinds[kinds.length - 1]).toBe('outro')
+
+    const firstPhoto = tl.segments.find((s) => s.kind === 'photo')!
+    expect(firstPhoto.start).toBeCloseTo(38.8 - CINEMA_CROSSFADE, 10)
 
     for (let i = 1; i < tl.segments.length; i += 1) {
       const prev = tl.segments[i - 1]!
@@ -115,9 +119,9 @@ describe('buildTimeline', () => {
     }
   })
 
-  it('无开场：首段为 title 且从 0 起，musicStart = 0', () => {
+  it('无开场：首段为照片且从 0 起（片头播完直接开演），musicStart = 0', () => {
     const tl = buildTimeline(photos)
-    expect(tl.segments[0]!.kind).toBe('title')
+    expect(tl.segments[0]!.kind).toBe('photo')
     expect(tl.segments[0]!.start).toBe(0)
     expect(tl.introSeconds).toBe(0)
     expect(tl.musicStart).toBe(0)
@@ -139,11 +143,11 @@ describe('buildTimeline', () => {
     }
   })
 
-  it('空照片列表也能产出合法时间轴（title 直连 outro）', () => {
+  it('空照片列表也能产出合法时间轴（直接谢幕）', () => {
     const tl = buildTimeline([])
     expect(tl.photoCount).toBe(0)
     expect(tl.duration).toBeGreaterThan(0)
-    expect(tl.segments.map((s) => s.kind)).toEqual(['title', 'outro'])
+    expect(tl.segments.map((s) => s.kind)).toEqual(['outro'])
   })
 })
 
@@ -158,12 +162,13 @@ describe('buildTimeline crossfade:0（放映室幻灯片硬切）', () => {
     }
   })
 
-  it('title→首张、末张→outro 同样零重叠', () => {
-    const title = tl.segments.find((s) => s.kind === 'title')!
+  it('片头→首张、末张→outro 同样零重叠', () => {
+    const intro = tl.segments[0]!
     const photoSegs = tl.segments.filter((s) => s.kind === 'photo')
     const outro = tl.segments[tl.segments.length - 1]!
+    expect(intro.kind).toBe('intro')
     expect(outro.kind).toBe('outro')
-    expect(photoSegs[0]!.start).toBeCloseTo(title.start + title.duration, 10)
+    expect(photoSegs[0]!.start).toBeCloseTo(intro.start + intro.duration, 10)
     expect(outro.start).toBeCloseTo(
       photoSegs[photoSegs.length - 1]!.start + photoSegs[photoSegs.length - 1]!.duration,
       10
@@ -203,11 +208,12 @@ describe('frameAt', () => {
     expect(layer.captionAlpha).toBeGreaterThan(0)
   })
 
-  it('交叉溶解窗口：两图层叠加且 alpha 和近似单调过渡', () => {
-    const title = tl.segments[1]!
-    const t = title.start + title.duration - 0.8 - 0.4 // photo[0] 淡入窗口中点附近
+  it('片头→首张交叉溶解窗口：两图层叠加且 alpha 过渡', () => {
+    const first = tl.segments[1]!
+    expect(first.kind).toBe('photo')
+    const t = first.start - 0.4 // 溶解窗口中点（xfade = 0.8）
     const plan = frameAt(tl, t)
-    expect(plan.layers.map((l) => l.seg.kind)).toEqual(['title', 'photo'])
+    expect(plan.layers.map((l) => l.seg.kind)).toEqual(['intro', 'photo'])
     expect(plan.layers[1]!.alpha).toBeGreaterThan(0)
     expect(plan.layers[1]!.alpha).toBeLessThan(1)
   })

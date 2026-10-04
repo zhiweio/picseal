@@ -42,15 +42,9 @@ export interface EnginePhotoInput {
 }
 
 export interface CinemaTexts {
-  /** 片头卡主标（如「作品集」） */
-  titleMain: string
-  /** 片头卡副标（hud 风，如 A PHOTO COLLECTION） */
-  titleSub: string
-  /** 片头卡角落信息（张数 / 日期跨度） */
-  titleInfo: string
   /** 谢幕主字（FIN） */
   outroMain: string
-  /** 谢幕统计行 */
+  /** 谢幕日期行（首末拍摄日期跨度，可为空） */
   outroSub: string
   /** 谢幕部署名（PICSEAL PROJECTION ROOM） */
   outroCredit: string
@@ -292,7 +286,7 @@ export class CinemaEngine {
       void this.video.play()
     }
 
-    // 配乐：片头卡起、谢幕落，跟随片长
+    // 配乐：照片段起、谢幕落，跟随片长
     if (this.musicBuffer && this.timeline) {
       const startAt = this.timeline.musicStart
       const available = this.musicBuffer.duration
@@ -430,9 +424,6 @@ export class CinemaEngine {
             this.drawCaption(seg.photo.caption, layer.captionAlpha)
           }
         }
-      } else if (seg.kind === 'title') {
-        ctx.globalAlpha = layer.alpha
-        this.drawTitleCard(t - seg.start)
       } else if (seg.kind === 'outro') {
         ctx.globalAlpha = layer.alpha
         this.drawOutroCard()
@@ -527,52 +518,66 @@ export class CinemaEngine {
     ctx.fillRect(CINEMA_WIDTH / 2 - 1, CINEMA_HEIGHT / 2 - 56, 2, 48)
   }
 
-  private hud(ctx: Ctx2D, text: string, x: number, y: number, px = 24, color = MUTED, align: 'left' | 'center' = 'left'): void {
+  /** 微标签署名行（Archivo 细体大写 + 0.28em 字距），PICSEAL 字样标品牌红 */
+  private drawCredit(text: string, x: number, y: number, px: number): void {
+    const { ctx } = this
     ctx.save()
     if ('letterSpacing' in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${Math.round(px * 0.28)}px`
     ctx.font = `300 ${px}px "Picseal Archivo", sans-serif`
-    ctx.fillStyle = color
-    ctx.textAlign = align
     ctx.textBaseline = 'alphabetic'
-    ctx.fillText(text.toUpperCase(), x, y)
+    ctx.textAlign = 'left'
+    const upper = text.toUpperCase()
+    const marker = 'PICSEAL'
+    const idx = upper.indexOf(marker)
+    const segments: Array<{ text: string; color: string }> = []
+    if (idx >= 0) {
+      if (idx > 0) segments.push({ text: upper.slice(0, idx), color: MUTED })
+      segments.push({ text: marker, color: NIKON_RED })
+      const rest = upper.slice(idx + marker.length)
+      if (rest) segments.push({ text: rest, color: MUTED })
+    } else {
+      segments.push({ text: upper, color: MUTED })
+    }
+    const total = segments.reduce((sum, seg) => sum + ctx.measureText(seg.text).width, 0)
+    let cursor = x - total / 2
+    for (const seg of segments) {
+      ctx.fillStyle = seg.color
+      ctx.fillText(seg.text, cursor, y)
+      cursor += ctx.measureText(seg.text).width
+    }
     ctx.restore()
-  }
-
-  private drawTitleCard(local: number): void {
-    const { ctx, texts } = this
-    if (!texts) return
-    this.hud(ctx, 'PICSEAL / PROJECTION ROOM', 96, 96, 24)
-    ctx.fillStyle = 'rgba(208,226,243,0.25)'
-    ctx.fillRect(96, 116, CINEMA_WIDTH - 192, 1)
-    this.hud(ctx, texts.titleSub, 96, CINEMA_HEIGHT - 84, 22)
-
-    const cx = CINEMA_WIDTH / 2
-    ctx.fillStyle = NIKON_RED
-    ctx.fillRect(cx - 28, CINEMA_HEIGHT / 2 - 128, 56, 3)
-    drawInkText(ctx, texts.titleMain, cx, CINEMA_HEIGHT / 2 - 60, 110, { family: 'misans', weight: 600, color: INK }, 'center')
-    drawInkText(ctx, texts.titleInfo, cx, CINEMA_HEIGHT / 2 + 90, 30, { family: 'misans', weight: 300, color: MUTED }, 'center')
   }
 
   private drawOutroCard(): void {
     const { ctx, texts } = this
     if (!texts) return
     const cx = CINEMA_WIDTH / 2
-    drawInkText(ctx, texts.outroMain, cx, CINEMA_HEIGHT / 2 - 70, 150, { family: 'archivo', weight: 300, color: INK }, 'center')
+    const cy = CINEMA_HEIGHT / 2
+    // 各行必须基线锚定：drawInkText 默认 anchor='top' 按行盒顶定位，而字体行盒
+    // （≈1.22em）高于目标行高，150px 大字的墨迹会下探到 y+136 附近——红杠切进
+    // FIN 字身、日期行叠上 FIN 底边。基线锚定后墨迹间距与字体度量解耦，
+    // 整块（FIN 顶到署名底）对 cy 光学居中
+    drawInkText(ctx, texts.outroMain, cx, cy - 28, 150, { family: 'archivo', weight: 300, color: INK }, 'center', 'baseline')
     ctx.fillStyle = NIKON_RED
-    ctx.fillRect(cx - 28, CINEMA_HEIGHT / 2 + 6, 56, 3)
-    drawInkText(ctx, texts.outroSub, cx, CINEMA_HEIGHT / 2 + 50, 34, { family: 'misans', weight: 400, color: INK }, 'center')
-    this.hud(ctx, texts.outroCredit, cx, CINEMA_HEIGHT / 2 + 130, 22, MUTED, 'center')
+    ctx.fillRect(cx - 28, cy + 28, 56, 3)
+    if (texts.outroSub) {
+      drawInkText(ctx, texts.outroSub, cx, cy + 92, 34, { family: 'misans', weight: 400, color: INK }, 'center', 'baseline')
+      this.drawCredit(texts.outroCredit, cx, cy + 150, 22)
+    } else {
+      // 照片全部无拍摄日期时省去日期行，署名顶入其槽位
+      this.drawCredit(texts.outroCredit, cx, cy + 92, 22)
+    }
   }
 
-  /** 播放结束的幕面驻留画面：END 大字（电影剧终意象，固定英文）
-   *  + 多语言署名小字——其中 "PICSEAL" 标品牌红 */
+  /** 播放结束的幕面驻留画面：FIN 大字（与谢幕卡同一剧终记号——艺术片传统，
+   *  固定英文）+ 多语言署名小字——其中 "PICSEAL" 标品牌红 */
   drawEndCard(credit: string): void {
     const { ctx } = this
     ctx.globalAlpha = 1
     ctx.fillStyle = STAGE_BLACK
     ctx.fillRect(0, 0, CINEMA_WIDTH, CINEMA_HEIGHT)
     const cx = CINEMA_WIDTH / 2
-    drawInkText(ctx, 'END', cx, CINEMA_HEIGHT / 2 - 150, 230, { family: 'archivo', weight: 300, color: INK }, 'center')
+    drawInkText(ctx, 'FIN', cx, CINEMA_HEIGHT / 2 - 150, 230, { family: 'archivo', weight: 300, color: INK }, 'center')
     ctx.fillStyle = NIKON_RED
     ctx.fillRect(cx - 34, CINEMA_HEIGHT / 2 + 84, 68, 3)
     const segments: Array<{ text: string; color: string }> = []
@@ -632,13 +637,14 @@ export function photoCaption(photo: EnginePhotoInput): { title: string; sub: str
   return { title, sub }
 }
 
+/** 谢幕日期行：首末拍摄日期跨度（不含张数）；照片全无日期时返回空串（谢幕卡省略该行） */
 export function summarizeSpan(photos: EnginePhotoInput[]): string {
   const times = photos
     .map((p) => p.meta?.dateTimeOriginal?.getTime())
     .filter((t): t is number => t !== undefined && !Number.isNaN(t))
     .sort((a, b) => a - b)
-  if (times.length === 0) return `${photos.length}`
+  if (times.length === 0) return ''
   const from = formatDate(new Date(times[0]!), 'YYYY.MM.dd')
   const to = formatDate(new Date(times[times.length - 1]!), 'YYYY.MM.dd')
-  return times.length === 1 || from === to ? `${photos.length} · ${from}` : `${photos.length} · ${from} - ${to}`
+  return times.length === 1 || from === to ? from : `${from} - ${to}`
 }
