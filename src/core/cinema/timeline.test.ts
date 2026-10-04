@@ -60,6 +60,18 @@ describe('selectPhotos', () => {
     const r = selectPhotos(items, { min: 0, timeOf: (p) => Number(p.id === 'a' ? 5 : 9) })
     expect(r.sorted.map((p) => p.id)).toEqual(['a', 'b'])
   })
+
+  it("order:'import' 保持传入顺序，不做时间排序", () => {
+    const items = [photo('late', '2024-05-01'), photo('early', '2020-01-01'), photo('noMeta')]
+    const r = selectPhotos(items, { min: 0, order: 'import' })
+    expect(r.sorted.map((p) => p.id)).toEqual(['late', 'early', 'noMeta'])
+  })
+
+  it("order:'captureTime' 与默认行为一致（时间升序、无时间沉底）", () => {
+    const items = [photo('noMeta-b'), photo('timed', '2024-05-01'), photo('noMeta-a')]
+    const r = selectPhotos(items, { min: 0, order: 'captureTime' })
+    expect(r.sorted.map((p) => p.id)).toEqual(['timed', 'noMeta-b', 'noMeta-a'])
+  })
 })
 
 describe('sampleEvenly', () => {

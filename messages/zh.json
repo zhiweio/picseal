@@ -100,7 +100,8 @@
       "sample": "样片",
       "prev": "上一张",
       "next": "下一张",
-      "noExif": "此照片没有可读取的拍摄信息"
+      "noExif": "此照片没有可读取的拍摄信息",
+      "sortByTime": "按拍摄时间排序（拖拽可自定义顺序）"
     },
     "template": {
       "label": "输出模板",
@@ -217,7 +218,7 @@
     "needMore": "还差 {count} 张 · 继续加油",
     "needMoreEn": "KEEP SHOOTING",
     "needMoreLong": "还差 {count} 张照片才能开演。好电影值得多按几次快门 —— 继续加油。",
-    "overLimit": "为最佳放映节奏，最多 {max} 张参与剪辑（已按拍摄时间等距预选，可手动调整）",
+    "overLimit": "为最佳放映节奏，最多 {max} 张参与剪辑（已按当前顺序等距预选，可手动调整）",
     "preview": "预览放映",
     "record": "生成并下载",
     "stop": "停止",
@@ -267,11 +268,13 @@
       "label": "选片",
       "labelEn": "SELECT FRAMES",
       "count": "{count} / {max}",
-      "hint": "勾选 {min}-{max} 张参与剪辑；预选已按拍摄时间等距采样",
+      "hint": "勾选 {min}-{max} 张参与剪辑；拖拽缩略图可自定义放映顺序",
+      "sortByTime": "按拍摄时间排序",
       "close": "关闭",
       "cancel": "取消",
       "confirm": "确认 {count} 张",
-      "orderNote": "成片按拍摄时间顺序放映"
+      "orderNote": "成片按拍摄时间顺序放映 · 拖拽缩略图可自定义",
+      "orderNoteCustom": "成片按自定义顺序放映 · 重新开启时间排序可还原"
     },
     "film": {
       "titleMain": "作品集",

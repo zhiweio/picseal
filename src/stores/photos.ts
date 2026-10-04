@@ -3,10 +3,14 @@
 import { create } from 'zustand'
 import { readPhotoMeta } from '@/core/exif/reader'
 import type { PhotoMeta } from '@/core/types'
+import { sortByCaptureTime } from '@/core/order'
 import { getRenderPool } from '@/workers/pool'
 import type { WorkerResponse } from '@/workers/protocol'
 
 export type MetaStatus = 'pending' | 'ok' | 'none'
+
+/** 候选栏排序模式：import = 上传顺序（默认），captureTime = 拍摄时间正序 */
+export type PhotoSortMode = 'import' | 'captureTime'
 
 export interface PhotoItem {
   id: string
@@ -49,13 +53,23 @@ interface PhotosState {
   sampleId: string | null
   importing: boolean
   importedCount: number
+  /** 候选栏排序模式（会话级，默认上传顺序；仅影响显示序，items 物理序由上传/拖拽决定） */
+  sortMode: PhotoSortMode
   addFiles: (files: File[]) => Promise<ImportedSummary>
   remove: (id: string) => void
   clear: () => void
   setCurrent: (id: string | null) => void
   toggleSelected: (id: string, value?: boolean) => void
   selectAll: (value: boolean) => void
+  setSortMode: (mode: PhotoSortMode) => void
+  /** 以给定 id 全序重排 items（拖拽自定义顺序；id 集合必须与 items 一致） */
+  reorderIds: (ids: string[]) => void
   current: () => PhotoItem | undefined
+}
+
+/** 候选栏显示序：captureTime 模式按拍摄时间正序（无时间沉底），否则保持物理序 */
+export function photoDisplayOrder(state: { items: PhotoItem[]; sortMode: PhotoSortMode }): PhotoItem[] {
+  return state.sortMode === 'captureTime' ? sortByCaptureTime(state.items) : state.items
 }
 
 export interface ImportedSummary {
@@ -71,6 +85,7 @@ export const usePhotos = create<PhotosState>((set, get) => ({
   sampleId: null,
   importing: false,
   importedCount: 0,
+  sortMode: 'import',
 
   addFiles: async (files) => {
     const pool = getRenderPool()
@@ -186,6 +201,17 @@ export const usePhotos = create<PhotosState>((set, get) => ({
 
   selectAll: (value) =>
     set((state) => ({ items: state.items.map((p) => ({ ...p, selected: value })) })),
+
+  setSortMode: (mode) => set({ sortMode: mode }),
+
+  reorderIds: (ids) =>
+    set((state) => {
+      if (ids.length !== state.items.length) return state
+      const wanted = new Set(ids)
+      if (state.items.some((p) => !wanted.has(p.id))) return state
+      const byId = new Map(state.items.map((p) => [p.id, p]))
+      return { items: ids.map((id) => byId.get(id)!) }
+    }),
 
   current: () => {
     const state = get()

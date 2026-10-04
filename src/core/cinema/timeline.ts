@@ -7,6 +7,7 @@
  * 等距采样（手挑器预选）也在此层，vitest 直测。
  */
 import type { PhotoMeta } from '../types'
+import { captureTimeOf, stableTimeSort } from '../order'
 
 /* ───────────────────────── 常量（成片规格，用户已拍板） ───────────────────────── */
 
@@ -40,7 +41,7 @@ export type SelectionStatus = 'insufficient' | 'ok' | 'over'
 
 export interface SelectionResult<T> {
   status: SelectionStatus
-  /** 按拍摄时间升序的完整列表（无 EXIF 时间者按原相对顺序沉底） */
+  /** 基准序完整列表（默认拍摄时间升序，无 EXIF 时间者按原相对顺序沉底；order:'import' 时保持原序） */
   sorted: T[]
   /** over 时为等距采样的上限预选（手挑器起点），否则同 sorted */
   selected: T[]
@@ -51,33 +52,21 @@ export interface SelectionResult<T> {
 export interface SelectionOptions {
   min?: number
   max?: number
+  /** 基准序：captureTime = 拍摄时间升序（默认），import = 保持导入 / 工作台传入顺序 */
+  order?: 'captureTime' | 'import'
   /** 时间戳（毫秒）；NaN 表示无时间，排在有时间者之后 */
   timeOf?: (item: CinemaPhoto) => number
-}
-
-function defaultTimeOf(item: CinemaPhoto): number {
-  const t = item.meta?.dateTimeOriginal?.getTime()
-  return t === undefined || Number.isNaN(t) ? Number.NaN : t
 }
 
 /** 选取三态：不足（missing>0）/ 恰好 / 超量（selected=等距采样预选） */
 export function selectPhotos<T extends CinemaPhoto>(items: readonly T[], opts: SelectionOptions = {}): SelectionResult<T> {
   const min = opts.min ?? CINEMA_MIN_PHOTOS
   const max = opts.max ?? CINEMA_MAX_PHOTOS
-  const timeOf = opts.timeOf ?? defaultTimeOf
+  const timeOf = opts.timeOf ?? ((item: CinemaPhoto) => captureTimeOf(item.meta))
+  const ordered = opts.order === 'import' ? [...items] : stableTimeSort(items, timeOf)
 
-  // 稳定排序：拍摄时间升序；NaN 沉底且保持导入相对顺序
-  const sorted = items
-    .map((item, index) => ({ item, index, t: timeOf(item) }))
-    .sort((a, b) => {
-      const aNaN = Number.isNaN(a.t)
-      const bNaN = Number.isNaN(b.t)
-      if (aNaN && bNaN) return a.index - b.index
-      if (aNaN) return 1
-      if (bNaN) return -1
-      return a.t - b.t || a.index - b.index
-    })
-    .map((e) => e.item)
+  // 稳定排序：拍摄时间升序（order:'import' 时保持原序）；NaN 沉底且保持导入相对顺序
+  const sorted = ordered
 
   if (sorted.length < min) {
     return { status: 'insufficient', sorted, selected: [], missing: min - sorted.length }

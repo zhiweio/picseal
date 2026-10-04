@@ -17,6 +17,7 @@ import { usePreferences } from '@/stores/preferences'
 import { readPhotoMeta, formatParams, formatDate } from '@/core/exif/reader'
 import { BUILTIN_TEMPLATES } from '@/core/templates/builtin'
 import { matchBrand } from '@/core/brands'
+import { sortByCaptureTime } from '@/core/order'
 import { ArchiveEntry } from '@/components/landing/ArchiveEntry'
 import { ArchiveIntakeModal } from '@/components/landing/ArchiveIntakeModal'
 import { getRenderPool } from '@/workers/pool'
@@ -242,14 +243,15 @@ export function HeroWall() {
   }, [trySeal])
 
   /* ── 已入馆判定与墙面显示清单：入馆后取作品集缩略图，否则样片。
+     档案墙按 EXIF 拍摄时间正序陈列（无时间者按收录序沉底）；入馆提交等
+     元数据流水线清零才落版本号，排序时 meta 已就绪。
      依赖刻意收窄：录入中的 items 变化不重建，重新入馆（版本号递增）才生效 ── */
   const admitted = portfolioCommitted > 0
   const wallKey = admitted ? `portfolio:${portfolioCommitted}` : 'samples'
   const wallItems: WallItem[] = useMemo(() => {
     if (admitted) {
-      return usePortfolio
-        .getState()
-        .items.slice(0, PORTFOLIO_WALL_CAP)
+      return sortByCaptureTime(usePortfolio.getState().items)
+        .slice(0, PORTFOLIO_WALL_CAP)
         .filter((i): i is PortfolioItem & { thumbUrl: string } => Boolean(i.thumbUrl))
         .map((i) => ({ id: i.id, name: i.name, url: i.thumbUrl, file: i.file, kind: 'portfolio' }))
     }

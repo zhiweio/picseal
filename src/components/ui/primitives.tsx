@@ -64,12 +64,9 @@ export function TermButton({
 export function TermSwitch({
   checked,
   onCheckedChange,
-  disabled
-}: {
-  checked: boolean
-  onCheckedChange: (v: boolean) => void
-  disabled?: boolean
-}) {
+  disabled,
+  ...props
+}: SwitchPrimitive.SwitchProps) {
   return (
     <SwitchPrimitive.Root
       checked={checked}
@@ -80,6 +77,7 @@ export function TermSwitch({
         checked ? 'border-accent bg-accent' : 'border-line bg-transparent',
         disabled && 'opacity-40'
       )}
+      {...props}
     >
       <SwitchPrimitive.Thumb
         className={clsx(

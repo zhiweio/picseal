@@ -100,7 +100,8 @@
       "sample": "Sample",
       "prev": "Previous",
       "next": "Next",
-      "noExif": "No readable capture info on this frame"
+      "noExif": "No readable capture info on this frame",
+      "sortByTime": "Sort by capture time (drag to customize order)"
     },
     "template": {
       "label": "Output Preset",
@@ -217,7 +218,7 @@
     "needMore": "{count} more to go · keep shooting",
     "needMoreEn": "KEEP SHOOTING",
     "needMoreLong": "{count} more photos before the reel can roll. Great films deserve a few more shutter clicks — keep going.",
-    "overLimit": "For the best pacing, up to {max} photos join the cut (pre-selected evenly by capture time — adjust as you like)",
+    "overLimit": "For the best pacing, up to {max} photos join the cut (evenly pre-selected in current order — adjust as you like)",
     "preview": "Preview screening",
     "record": "Render & download",
     "stop": "Stop",
@@ -267,11 +268,13 @@
       "label": "Select",
       "labelEn": "SELECT FRAMES",
       "count": "{count} / {max}",
-      "hint": "Pick {min}-{max} photos for the cut; pre-selection samples evenly by capture time",
+      "hint": "Pick {min}-{max} photos for the cut; drag thumbnails to set your own play order",
+      "sortByTime": "Sort by capture time",
       "close": "Close",
       "cancel": "Cancel",
       "confirm": "Confirm {count}",
-      "orderNote": "The film plays in capture-time order"
+      "orderNote": "The film plays in capture-time order · drag thumbnails to customize",
+      "orderNoteCustom": "The film plays in your custom order · re-enable capture-time sort to reset"
     },
     "film": {
       "titleMain": "Collection",

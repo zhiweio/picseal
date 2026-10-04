@@ -1,15 +1,16 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import { FileArchive, FolderOpen, ImagePlus, Pin, Plus } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { usePhotos, type PhotoItem } from '@/stores/photos'
-import { StatusDot } from '@/components/ui/primitives'
+import { moveRelative } from '@/core/order'
+import { usePhotos, photoDisplayOrder, type PhotoItem } from '@/stores/photos'
+import { StatusDot, TermSwitch } from '@/components/ui/primitives'
 
-/** 左侧刻度尺胶片条：添加入口 + 缩略图轨 + tick 导航 + 队列状态灯 + 样片别针 */
+/** 左侧刻度尺胶片条：添加入口 + 排序开关 + 缩略图轨（可拖拽自由排序）+ tick 导航 + 队列状态灯 + 样片别针 */
 export function FilmStrip({
   onPickFiles,
   onPickFolder,
@@ -23,12 +24,22 @@ export function FilmStrip({
   const items = usePhotos((s) => s.items)
   const currentId = usePhotos((s) => s.currentId)
   const sampleId = usePhotos((s) => s.sampleId)
+  const sortMode = usePhotos((s) => s.sortMode)
   const setCurrent = usePhotos((s) => s.setCurrent)
   const toggleSelected = usePhotos((s) => s.toggleSelected)
+  const setSortMode = usePhotos((s) => s.setSortMode)
+  const reorderIds = usePhotos((s) => s.reorderIds)
 
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // 显示序：时间正序排序是纯视图（开关关闭即回到物理序 = 上传/拖拽自定义顺序）
+  const displayItems = useMemo(
+    () => photoDisplayOrder({ items, sortMode }),
+    [items, sortMode]
+  )
+
   const virtualizer = useVirtualizer({
-    count: items.length,
+    count: displayItems.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 64,
     overscan: 8
@@ -54,7 +65,38 @@ export function FilmStrip({
     }
   }, [addOpen])
 
-  const currentIndex = items.findIndex((p) => p.id === currentId)
+  /* ── 拖拽自由排序（HTML5 DnD）：落点 = 目标格上/下半的插入位；
+        拖拽即自定义顺序，时间排序开关自动关闭 ── */
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dropHint, setDropHint] = useState<{ id: string; position: 'before' | 'after' } | null>(null)
+
+  useEffect(() => {
+    if (!dragId) return
+    const clear = () => {
+      setDragId(null)
+      setDropHint(null)
+    }
+    window.addEventListener('dragend', clear)
+    window.addEventListener('drop', clear)
+    return () => {
+      window.removeEventListener('dragend', clear)
+      window.removeEventListener('drop', clear)
+    }
+  }, [dragId])
+
+  const dropPositionOf = (e: React.DragEvent): 'before' | 'after' => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  }
+
+  const commitDrop = (targetId: string, e: React.DragEvent) => {
+    if (!dragId || dragId === targetId) return
+    const next = moveRelative(displayItems, dragId, targetId, dropPositionOf(e)).map((p) => p.id)
+    reorderIds(next)
+    if (sortMode !== 'import') setSortMode('import')
+  }
+
+  const currentIndex = displayItems.findIndex((p) => p.id === currentId)
 
   return (
     <aside className="flex w-[76px] shrink-0 flex-col border-r border-line">
@@ -63,6 +105,18 @@ export function FilmStrip({
         <span className="text-[10px] tabular-nums text-muted">
           {String(items.length).padStart(3, '0')}
         </span>
+      </div>
+
+      {/* 排序开关：按拍摄时间正序（默认关 = 上传顺序）；拖拽会自动切回自定义顺序 */}
+      <div className="flex h-8 items-center justify-between border-b border-line px-2" title={t('frame.sortByTime')}>
+        <span className={clsx('hud-label text-[9px]', sortMode === 'captureTime' ? 'text-accent' : 'text-muted')}>
+          SORT
+        </span>
+        <TermSwitch
+          checked={sortMode === 'captureTime'}
+          onCheckedChange={(v) => setSortMode(v ? 'captureTime' : 'import')}
+          aria-label={t('frame.sortByTime')}
+        />
       </div>
 
       {/* 追加照片入口：固定在轨道顶部，不随列表滚动 */}
@@ -127,7 +181,7 @@ export function FilmStrip({
         <button
           type="button"
           className="border-b border-line py-1 text-center text-[9px] tracking-[2px] text-muted hover:text-ink"
-          onClick={() => setCurrent(items[currentIndex - 1]?.id ?? null)}
+          onClick={() => setCurrent(displayItems[currentIndex - 1]?.id ?? null)}
         >
           ↑ {String(currentIndex).padStart(3, '0')}
         </button>
@@ -136,7 +190,7 @@ export function FilmStrip({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
           {virtualizer.getVirtualItems().map((vRow) => {
-            const photo = items[vRow.index]
+            const photo = displayItems[vRow.index]
             if (!photo) return null
             return (
               <div
@@ -154,9 +208,29 @@ export function FilmStrip({
                   photo={photo}
                   active={photo.id === currentId}
                   sample={photo.id === sampleId}
+                  dragging={dragId === photo.id}
+                  dropHint={dropHint?.id === photo.id ? dropHint.position : null}
                   onNavigate={() => setCurrent(photo.id)}
                   onSelect={(v) => toggleSelected(photo.id, v)}
-                  ariaLabel={t('frame.counter')}
+                  onDragStart={(e) => {
+                    setDragId(photo.id)
+                    e.dataTransfer.effectAllowed = 'move'
+                    // Firefox 需要 setData 才允许发起拖拽
+                    e.dataTransfer.setData('text/plain', photo.id)
+                  }}
+                  onDragOver={(e) => {
+                    if (!dragId || dragId === photo.id) return
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    const position = dropPositionOf(e)
+                    setDropHint((prev) =>
+                      prev?.id === photo.id && prev.position === position ? prev : { id: photo.id, position }
+                    )
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    commitDrop(photo.id, e)
+                  }}
                 />
               </div>
             )
@@ -193,22 +267,37 @@ function FrameCell({
   photo,
   active,
   sample,
+  dragging,
+  dropHint,
   onNavigate,
-  onSelect
+  onSelect,
+  onDragStart,
+  onDragOver,
+  onDrop
 }: {
   photo: PhotoItem
   active: boolean
   sample: boolean
+  dragging: boolean
+  dropHint: 'before' | 'after' | null
   onNavigate: () => void
   onSelect: (v: boolean) => void
-  ariaLabel: string
+  onDragStart: (e: React.DragEvent) => void
+  onDragOver: (e: React.DragEvent) => void
+  onDrop: (e: React.DragEvent) => void
 }) {
   return (
     <div
       className={clsx(
-        'group relative flex h-full cursor-pointer items-center gap-1.5 pl-2 pr-1.5',
-        active ? 'bg-ink/5' : 'hover:bg-ink/5'
+        'group relative flex h-full cursor-grab items-center gap-1.5 pl-2 pr-1.5',
+        active ? 'bg-ink/5' : 'hover:bg-ink/5',
+        dragging && 'opacity-30'
       )}
+      title={photo.name}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       onClick={onNavigate}
     >
       {/* 活动刻度记号：accent 竖线 */}
@@ -218,10 +307,19 @@ function FrameCell({
           active ? 'h-6 bg-accent' : 'h-0 bg-transparent group-hover:h-3 group-hover:bg-line'
         )}
       />
+      {/* 拖拽落点指示：目标格上/下缘的 accent 横线 */}
+      {dropHint ? (
+        <span
+          className={clsx(
+            'pointer-events-none absolute left-0 right-0 z-10 h-[2px] bg-accent',
+            dropHint === 'before' ? 'top-0' : 'bottom-0'
+          )}
+        />
+      ) : null}
       <div className="relative h-12 w-12 shrink-0 overflow-hidden bg-stage">
         {photo.thumbUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={photo.thumbUrl} alt={photo.name} className="h-full w-full object-cover" />
+          <img src={photo.thumbUrl} alt={photo.name} className="h-full w-full object-cover" draggable={false} />
         ) : (
           <div className="h-full w-full animate-pulse bg-line" />
         )}
@@ -239,6 +337,7 @@ function FrameCell({
           type="checkbox"
           aria-label="select for batch"
           checked={photo.selected}
+          draggable={false}
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => onSelect(e.target.checked)}
           className="h-3 w-3 shrink-0 appearance-none border border-line checked:border-accent checked:bg-accent"

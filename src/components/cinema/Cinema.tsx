@@ -12,7 +12,7 @@ import { CinemaEngine, pickRecordingMime, summarizeSpan } from '@/core/cinema/en
 import { CINEMA_HEIGHT, CINEMA_MIN_PHOTOS, CINEMA_MAX_PHOTOS, CINEMA_WIDTH, coverCropRect, frameAt, sampleEvenly, selectPhotos } from '@/core/cinema/timeline'
 import { saveBlob } from '@/lib/delivery'
 import { resolveCinemaMedia, saveUserMedia, CINEMA_MEDIA_KEYS, type ResolvedCinemaMedia } from '@/lib/cinema-assets'
-import { usePhotos } from '@/stores/photos'
+import { usePhotos, type PhotoItem } from '@/stores/photos'
 import { useSettings } from '@/stores/settings'
 import { usePreferences } from '@/stores/preferences'
 import { renderMiniPreview } from '@/hooks/usePreview'
@@ -43,7 +43,11 @@ export function Cinema() {
   const mediaToggles = usePreferences((s) => s.cinemaMedia)
   const toggleMedia = usePreferences((s) => s.toggleCinemaMedia)
   const [pickerOpen, setPickerOpen] = useState(false)
+  /** 片单（有序 id 数组：顺序即放映顺序；null = 未手挑） */
   const [picked, setPicked] = useState<string[] | null>(null)
+  /** 基准序开关：进放映室时片库已有照片（工作台带来 / 本会话导入过）默认关——
+      尊重既有的上传或工作台拖拽顺序；空库起片默认开（拍摄时间正序） */
+  const [sortByTime, setSortByTime] = useState(() => usePhotos.getState().items.length === 0)
   /** 更换素材弹窗目标（本地文件 / https 直链合并弹窗；null = 关闭） */
   const [mediaSlot, setMediaSlot] = useState<'intro' | 'music' | null>(null)
   const [creditsOpen, setCreditsOpen] = useState(false)
@@ -161,14 +165,35 @@ export function Cinema() {
 
   /* ── 选取三态与当前片单 ── */
 
-  const selection = useMemo(() => selectPhotos(items), [items])
-  const activeItems = useMemo(() => {
-    if (picked) {
-      const set = new Set(picked)
-      return selection.sorted.filter((p) => set.has(p.id))
-    }
-    return selection.selected
-  }, [picked, selection])
+  const selection = useMemo(
+    () => selectPhotos(items, { order: sortByTime ? 'captureTime' : 'import' }),
+    [items, sortByTime]
+  )
+  /** 片单实体（保持 picked 的自定义顺序；id 可能在照片被移除后失效，静默过滤） */
+  const pickedItems = useMemo(() => {
+    if (!picked) return null
+    const byId = new Map(items.map((p) => [p.id, p]))
+    return picked.map((id) => byId.get(id)).filter((p): p is PhotoItem => Boolean(p))
+  }, [items, picked])
+  const activeItems = pickedItems ?? selection.selected
+
+  /** 切换基准序：保留已选集合，片单按新基准序重排（不丢用户勾选） */
+  const toggleSortByTime = useCallback((v: boolean) => {
+    setSortByTime(v)
+    setPicked((prev) => {
+      if (!prev) return prev
+      const keep = new Set(prev)
+      const base = selectPhotos(usePhotos.getState().items, { order: v ? 'captureTime' : 'import' }).sorted
+      return base.filter((p) => keep.has(p.id)).map((p) => p.id)
+    })
+  }, [])
+
+  /** 选片器候选序：已有片单时片单在前、未选者按基准序垫底（重开弹窗不丢已排顺序） */
+  const pickerBase = useMemo(() => {
+    if (!pickedItems || !picked) return selection.sorted
+    const pickedSet = new Set(picked)
+    return [...pickedItems, ...selection.sorted.filter((p) => !pickedSet.has(p.id))]
+  }, [picked, pickedItems, selection])
 
   const insufficient = selection.status === 'insufficient'
   const over = selection.status === 'over'
@@ -638,12 +663,15 @@ export function Cinema() {
         key={pickerOpen ? 'open' : 'closed'}
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        items={selection.sorted}
+        items={pickerBase}
         preselected={
           picked
             ? new Set(picked)
             : new Set((over ? sampleEvenly(selection.sorted, CINEMA_MAX_PHOTOS) : selection.sorted).map((p) => p.id))
         }
+        sortByTime={sortByTime}
+        onToggleSortByTime={toggleSortByTime}
+        onCustomized={() => setSortByTime(false)}
         onConfirm={(ids) => {
           setPicked(ids)
           setPickerOpen(false)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import clsx from 'clsx'
 import { FolderOpen, Github, ImagePlus } from 'lucide-react'
@@ -10,7 +10,7 @@ import { FilmStrip } from './FilmStrip'
 import { Stage } from './Stage'
 import { ControlColumn } from './ControlColumn'
 import { RunPanel } from './RunPanel'
-import { usePhotos } from '@/stores/photos'
+import { usePhotos, photoDisplayOrder } from '@/stores/photos'
 import { extractImagesFromZip, isZipFile } from '@/lib/zip-import'
 import { clearPreviewCache } from '@/hooks/usePreview'
 
@@ -19,11 +19,15 @@ export function Studio() {
   const t = useTranslations('studio')
   const tr = useTranslations()
   const items = usePhotos((s) => s.items)
+  const sortMode = usePhotos((s) => s.sortMode)
   const addFiles = usePhotos((s) => s.addFiles)
   const setCurrent = usePhotos((s) => s.setCurrent)
   const [runOpen, setRunOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+
+  // 键盘翻帧与左侧候选栏同序（时间排序开启时跟随显示序）
+  const orderedItems = useMemo(() => photoDisplayOrder({ items, sortMode }), [items, sortMode])
 
   const importFiles = useCallback(
     async (fileList: File[]) => {
@@ -91,17 +95,17 @@ export function Studio() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
       if (runOpen) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        const index = items.findIndex((p) => p.id === usePhotos.getState().currentId)
+        const index = orderedItems.findIndex((p) => p.id === usePhotos.getState().currentId)
         const next =
           e.key === 'ArrowLeft'
-            ? items[Math.max(0, index - 1)]
-            : items[Math.min(items.length - 1, index + 1)]
+            ? orderedItems[Math.max(0, index - 1)]
+            : orderedItems[Math.min(orderedItems.length - 1, index + 1)]
         if (next) setCurrent(next.id)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [items, runOpen, setCurrent])
+  }, [orderedItems, runOpen, setCurrent])
 
   useEffect(() => {
     if (!notice) return
