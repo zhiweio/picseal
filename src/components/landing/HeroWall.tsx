@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Volume2, VolumeX, Music4, Upload } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
@@ -17,8 +17,12 @@ import { usePreferences } from '@/stores/preferences'
 import { readPhotoMeta, formatParams, formatDate } from '@/core/exif/reader'
 import { BUILTIN_TEMPLATES } from '@/core/templates/builtin'
 import { matchBrand } from '@/core/brands'
+import { ArchiveEntry } from '@/components/landing/ArchiveEntry'
+import { ArchiveIntakeModal } from '@/components/landing/ArchiveIntakeModal'
 import { getRenderPool } from '@/workers/pool'
 import type { PhotoMeta } from '@/core/types'
+import { PORTFOLIO_WALL_CAP } from '@/lib/portfolio'
+import { usePortfolio, type PortfolioItem } from '@/stores/portfolio'
 
 /** 内置兜底样片；若 public/samples/manifest.json 存在则优先使用采集样片库 */
 const FALLBACK_SAMPLES = [
@@ -39,22 +43,35 @@ const PANEL_META_GRACE_MS = 600
 const metaInFlight = new Map<string, Promise<PhotoMeta | null>>()
 const metaFailed = new Set<string>()
 
-async function fetchMeta(entry: SampleEntry): Promise<PhotoMeta | null> {
-  if (metaFailed.has(entry.id)) return null
-  let pending = metaInFlight.get(entry.id)
+async function fetchMeta(item: WallItem): Promise<PhotoMeta | null> {
+  if (item.kind === 'portfolio') {
+    if (!item.file) {
+      // 恢复会话无原片句柄，直接进负缓存避免被反复重取
+      metaFailed.add(item.id)
+      return null
+    }
+    try {
+      return await readPhotoMeta(item.file)
+    } catch {
+      metaFailed.add(item.id)
+      return null
+    }
+  }
+  if (metaFailed.has(item.id)) return null
+  let pending = metaInFlight.get(item.id)
   if (!pending) {
     pending = (async () => {
       try {
-        const res = await fetch(`/samples/${entry.file}`)
+        const res = await fetch(item.url)
         if (!res.ok) throw new Error(String(res.status))
         return await readPhotoMeta(await res.blob())
       } catch {
-        metaFailed.add(entry.id)
+        metaFailed.add(item.id)
         return null
       }
     })()
-    metaInFlight.set(entry.id, pending)
-    void pending.finally(() => metaInFlight.delete(entry.id)).catch(() => undefined)
+    metaInFlight.set(item.id, pending)
+    void pending.finally(() => metaInFlight.delete(item.id)).catch(() => undefined)
   }
   return pending
 }
@@ -64,6 +81,15 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
 interface SampleEntry {
   id: string
   file: string
+}
+
+/** 墙面显示项：样片走 URL，作品集走缩略图 blob URL（file 仅会话内存在） */
+interface WallItem {
+  id: string
+  name: string
+  url: string
+  file?: File
+  kind: 'sample' | 'portfolio'
 }
 
 async function loadSampleList(): Promise<Array<SampleEntry>> {
@@ -95,7 +121,11 @@ export function HeroWall() {
   const sceneRef = useRef<ArchiveWallScene | null>(null)
   const engineRef = useRef<BeatEngine | null>(null)
 
-  const [entries, setEntries] = useState<SampleEntry[]>([])
+  const [sampleList, setSampleList] = useState<SampleEntry[]>([])
+  /** 档案征集弹窗开关（个人档案馆入口） */
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  /** 入馆版本号：>0 表示档案墙以用户作品为源（store 内保证满门槛才会递增） */
+  const portfolioCommitted = usePortfolio((s) => s.committedVersion)
   const [metaMap, setMetaMap] = useState<Map<string, PhotoMeta>>(new Map())
   const [selected, setSelected] = useState<number | null>(null)
   /** 悬停卡（桌面端提前预取详情卡元数据，让面板打开即完整） */
@@ -116,19 +146,27 @@ export function HeroWall() {
   const sealedRef = useRef(false)
   const selectedRef = useRef<number | null>(null)
   /** 最近一次元数据就绪的检视内容（快切时暂留上屏，防占位闪跳） */
-  const lastReadyRef = useRef<{ index: number; entry: SampleEntry; meta: PhotoMeta } | null>(null)
+  const lastReadyRef = useRef<{ index: number; entry: WallItem; meta: PhotoMeta } | null>(null)
 
   /* ── 样片清单（仅 manifest，秒级） ── */
   useEffect(() => {
     let cancelled = false
     void (async () => {
       const list = await loadSampleList()
-      if (!cancelled && list.length > 0) setEntries(list)
+      if (!cancelled && list.length > 0) setSampleList(list)
     })()
     return () => {
       cancelled = true
     }
   }, [])
+
+  /* ── 档案馆恢复：IndexedDB 缩略图（与样片清单并行；已入馆则晚到后重建墙面） ── */
+  useEffect(() => {
+    void usePortfolio.getState().hydrate()
+  }, [])
+
+  const openArchive = useCallback(() => setArchiveOpen(true), [])
+  const closeArchive = useCallback(() => setArchiveOpen(false), [])
 
   /* ── 盖章：玻璃揭示完成后把印刷面替换为水印横幅成品 ── */
   const trySeal = useCallback((): void => {
@@ -203,12 +241,64 @@ export function HeroWall() {
     }
   }, [trySeal])
 
-  /* ── 场景构建（manifest 就绪即建；封面由场景自行流式填充） ── */
+  /* ── 已入馆判定与墙面显示清单：入馆后取作品集缩略图，否则样片。
+     依赖刻意收窄：录入中的 items 变化不重建，重新入馆（版本号递增）才生效 ── */
+  const admitted = portfolioCommitted > 0
+  const wallKey = admitted ? `portfolio:${portfolioCommitted}` : 'samples'
+  const wallItems: WallItem[] = useMemo(() => {
+    if (admitted) {
+      return usePortfolio
+        .getState()
+        .items.slice(0, PORTFOLIO_WALL_CAP)
+        .filter((i): i is PortfolioItem & { thumbUrl: string } => Boolean(i.thumbUrl))
+        .map((i) => ({ id: i.id, name: i.name, url: i.thumbUrl, file: i.file, kind: 'portfolio' }))
+    }
+    return sampleList.map((e) => ({
+      id: e.id,
+      name: e.file,
+      url: `/samples/${e.file}`,
+      kind: 'sample'
+    }))
+  }, [admitted, portfolioCommitted, sampleList]) // eslint-disable-line react-hooks/exhaustive-deps
+  const hasWall = wallItems.length > 0
+
+  /* ── 详情卡过渡 + 文字墨条：mount 一次，不随墙面换源重建 ── */
   useEffect(() => {
-    if (!containerRef.current || entries.length === 0 || sceneRef.current) return
+    transitionRef.current = new SurfaceTransition(calloutRef.current, {
+      enterMs: 360,
+      exitMs: 240,
+      direction: 'right'
+    })
+    transitionRef.current.hide()
+    docDecryptRef.current = new DocumentDecryption()
+    return () => {
+      docDecryptRef.current?.dispose()
+      docDecryptRef.current = null
+      engineRef.current?.destroy()
+      engineRef.current = null
+      transitionRef.current = null
+    }
+  }, [])
+
+  /* ── 场景构建（按 wallKey 换源重建：样片 ↔ 用户作品，入场揭示随重建重放） ── */
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || !hasWall) return
+    // 旧场景先退场：撤销未消费的盖章成品、释放 WebGL 资源
+    for (const url of sealUrlsRef.current.values()) URL.revokeObjectURL(url)
+    sealUrlsRef.current.clear()
+    sceneRef.current?.dispose()
+    sceneRef.current = null
+    setSelected(null)
+    selectedRef.current = null
+    sealedRef.current = false
+    setPanelOpen(false)
+    lastReadyRef.current = null
+    setMetaMap(new Map())
+
     const scene = new ArchiveWallScene({
-      container: containerRef.current,
-      items: entries.map((e) => ({ id: e.id, url: `/samples/${e.file}` })),
+      container,
+      items: wallItems.map((w) => ({ id: w.id, url: w.url })),
       reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       theme: ((document.documentElement.dataset.theme as 'night' | 'day') ?? 'night'),
       quality: window.innerWidth < 900 || window.innerWidth * window.devicePixelRatio > 3200 ? 'performance' : 'high',
@@ -227,27 +317,14 @@ export function HeroWall() {
       setWebglFailed(true)
       return
     }
+    setWebglFailed(false)
     sceneRef.current = scene
 
-    transitionRef.current = new SurfaceTransition(calloutRef.current, {
-      enterMs: 360,
-      exitMs: 240,
-      direction: 'right'
-    })
-    transitionRef.current.hide()
-    docDecryptRef.current = new DocumentDecryption()
-
     return () => {
-      docDecryptRef.current?.dispose()
-      docDecryptRef.current = null
-      engineRef.current?.destroy()
-      engineRef.current = null
       scene.dispose()
-      sceneRef.current = null
-      for (const url of sealUrlsRef.current.values()) URL.revokeObjectURL(url)
-      sealUrlsRef.current.clear()
+      if (sceneRef.current === scene) sceneRef.current = null
     }
-  }, [entries.length, applyHud]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wallKey, hasWall, applyHud]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 元数据宽限：自选中起计时，只随 selected 重启（水印循环的高频 metaMap
      更新不得清掉重排定时器，否则慢加载卡的面板永远等不到放行）；
@@ -270,10 +347,10 @@ export function HeroWall() {
       return
     }
     if (panelOpen) return
-    const entry = entries[selected]
-    if (!entry) return
-    if (metaMap.has(entry.id) || metaGraceElapsed) setPanelOpen(true)
-  }, [selected, entries, metaMap, metaGraceElapsed, panelOpen])
+    const item = wallItems[selected]
+    if (!item) return
+    if (metaMap.has(item.id) || metaGraceElapsed) setPanelOpen(true)
+  }, [selected, wallItems, metaMap, metaGraceElapsed, panelOpen])
 
   /* ── 面板入场/退场跟随闸：show 推迟到内容完整时，空面板不再滑入 ── */
   useEffect(() => {
@@ -296,9 +373,10 @@ export function HeroWall() {
     return () => window.clearTimeout(id)
   }, [selected, panelOpen])
 
-  /* ── 水印实渲 → 原位升级墙面纹理；顺带缓存 EXIF（详情卡懒加载秒开） ── */
+  /* ── 水印实渲 → 原位升级墙面纹理；顺带缓存 EXIF（详情卡懒加载秒开）。
+     样片走 URL 取图；作品集走会话内原片句柄（恢复会话无原片，保留缩略图纹理） ── */
   useEffect(() => {
-    if (entries.length === 0 || !sceneRef.current) return
+    if (!hasWall || !sceneRef.current) return
     let cancelled = false
     const metas = new Map(metaMap)
     void (async () => {
@@ -307,29 +385,39 @@ export function HeroWall() {
         ...BUILTIN_TEMPLATES[0]!,
         typography: { ...BUILTIN_TEMPLATES[0]!.typography, scale: 1.35 }
       }
-      for (const [index, entry] of entries.entries()) {
+      for (const [index, item] of wallItems.entries()) {
         if (cancelled || !sceneRef.current) return
         try {
-          const res = await fetch(`/samples/${entry.file}`)
-          const blob = await res.blob()
-          const meta = await readPhotoMeta(blob)
+          let blob: Blob
+          let meta = metas.get(item.id)
+          if (item.kind === 'sample') {
+            const res = await fetch(item.url)
+            blob = await res.blob()
+            meta = await readPhotoMeta(blob)
+          } else if (item.file) {
+            blob = item.file
+            if (!meta) meta = await readPhotoMeta(item.file)
+          } else {
+            continue
+          }
           if (cancelled) return
-          if (!metas.has(entry.id)) {
-            metas.set(entry.id, meta)
+          if (meta && !metas.has(item.id)) {
+            metas.set(item.id, meta)
             setMetaMap(new Map(metas))
           }
           const rendered = await pool.run({
             kind: 'preview',
-            file: new File([blob], entry.file, { type: 'image/jpeg' }),
-            meta,
+            file: blob instanceof File ? blob : new File([blob], item.name, { type: 'image/jpeg' }),
+            meta: meta ?? ({} as PhotoMeta),
             template,
             maxLongEdge: 1024
           })
           if (cancelled) return
           if (rendered.ok && rendered.kind === 'preview') {
             // 一渲两用：墙面图集升级 + 检视盖章的水印成品缓存
-            sealUrlsRef.current.set(index, URL.createObjectURL(rendered.blob))
-            sceneRef.current.upgradeItem(index, sealUrlsRef.current.get(index)!)
+            const sealUrl = URL.createObjectURL(rendered.blob)
+            sealUrlsRef.current.set(index, sealUrl)
+            sceneRef.current.upgradeItem(index, sealUrl)
           }
         } catch {
           /* 单张失败保留原图 */
@@ -339,44 +427,52 @@ export function HeroWall() {
     return () => {
       cancelled = true
     }
-  }, [entries.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wallKey, hasWall]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 焦点/悬停卡元数据预取（未命中缓存时）：悬停即取，详情卡打开时多半已就绪；
      404/解析失败的样片进负缓存，不随 metaMap 更新被反复拉取 ── */
   useEffect(() => {
     const indices = [...new Set([browsed, hovered].filter((i): i is number => i !== null))]
     const pending = indices.filter((i) => {
-      const entry = entries[i]
-      return entry && !metaMap.has(entry.id) && !metaFailed.has(entry.id)
+      const item = wallItems[i]
+      return item && !metaMap.has(item.id) && !metaFailed.has(item.id)
     })
     if (pending.length === 0) return
     let cancelled = false
     void (async () => {
       for (const index of pending) {
         if (cancelled) return
-        const entry = entries[index]!
-        const meta = await fetchMeta(entry)
+        const item = wallItems[index]
+        if (!item) continue
+        const meta = await fetchMeta(item)
         if (!meta || cancelled) continue
-        setMetaMap((prev) => (prev.has(entry.id) ? prev : new Map(prev).set(entry.id, meta)))
+        setMetaMap((prev) => (prev.has(item.id) ? prev : new Map(prev).set(item.id, meta)))
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [browsed, hovered, entries, metaMap])
+  }, [browsed, hovered, wallKey, hasWall, metaMap]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 焦点卡水印成品即时预取（盖章用；实演循环按序渲染太慢，等不到当前卡） ── */
   useEffect(() => {
     const index = browsed
-    const entry = entries[index]
-    if (!entry || !sceneRef.current || sealUrlsRef.current.has(index)) return
-    const meta = metaMap.get(entry.id)
+    const item = wallItems[index]
+    if (!item || !sceneRef.current || sealUrlsRef.current.has(index)) return
+    const meta = metaMap.get(item.id)
     if (!meta) return
     let cancelled = false
     void (async () => {
       try {
-        const res = await fetch(`/samples/${entry.file}`)
-        const blob = await res.blob()
+        let blob: Blob
+        if (item.kind === 'sample') {
+          const res = await fetch(item.url)
+          blob = await res.blob()
+        } else if (item.file) {
+          blob = item.file
+        } else {
+          return
+        }
         const pool = getRenderPool()
         const template = {
           ...BUILTIN_TEMPLATES[0]!,
@@ -384,7 +480,7 @@ export function HeroWall() {
         }
         const rendered = await pool.run({
           kind: 'preview',
-          file: new File([blob], entry.file, { type: 'image/jpeg' }),
+          file: blob instanceof File ? blob : new File([blob], item.name, { type: 'image/jpeg' }),
           meta,
           template,
           maxLongEdge: 1024
@@ -398,7 +494,7 @@ export function HeroWall() {
     return () => {
       cancelled = true
     }
-  }, [browsed, entries, metaMap])
+  }, [browsed, wallKey, hasWall, metaMap]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 主题联动：昼夜切换时同步墙面氛围 ── */
   useEffect(() => {
@@ -476,8 +572,8 @@ export function HeroWall() {
     }
   }
 
-  const selectedEntry = selected !== null ? entries[selected] : undefined
-  const selectedMeta = selectedEntry ? metaMap.get(selectedEntry.id) : undefined
+  const selectedItem = selected !== null ? wallItems[selected] : undefined
+  const selectedMeta = selectedItem ? metaMap.get(selectedItem.id) : undefined
 
   /* ── 检视间快切保持：新卡元数据未到（且未过宽限）时沿用上一张就绪内容，
      避免占位文本闪现与高度跳变；元数据到达后随墨条重扫一次性换新 ── */
@@ -486,13 +582,13 @@ export function HeroWall() {
       lastReadyRef.current = null
       return
     }
-    if (selectedEntry && selectedMeta)
-      lastReadyRef.current = { index: selected, entry: selectedEntry, meta: selectedMeta }
-  }, [selected, selectedEntry, selectedMeta])
+    if (selectedItem && selectedMeta)
+      lastReadyRef.current = { index: selected, entry: selectedItem, meta: selectedMeta }
+  }, [selected, selectedItem, selectedMeta])
 
   const holdReady =
-    selectedEntry && !selectedMeta && !metaGraceElapsed ? lastReadyRef.current : null
-  const shownEntry = (selectedMeta ? selectedEntry : holdReady?.entry) ?? selectedEntry
+    selectedItem && !selectedMeta && !metaGraceElapsed ? lastReadyRef.current : null
+  const shownEntry = (selectedMeta ? selectedItem : holdReady?.entry) ?? selectedItem
   const shownMeta = selectedMeta ?? holdReady?.meta
   const shownIndex = selectedMeta ? selected : (holdReady?.index ?? selected)
   const brand = shownMeta ? matchBrand(shownMeta.make, shownMeta.model) : undefined
@@ -528,8 +624,10 @@ export function HeroWall() {
 
       {/* 音乐控制（右上）：默认开启，可关闭；支持载入自备音源 */}
       <div className="absolute right-6 top-6 z-20 flex items-center gap-2">
-        {/* 放映室入口：尼康 Z 红标，悬浮 tooltip + 红晕 */}
-        <Tooltip label={t('cinema.entryHint')} side="bottom">
+      {/* 个人档案馆入口：作品集批量上传，满门槛入馆换墙（镜像放映室入口形态，accent 暖金） */}
+      <ArchiveEntry onOpen={openArchive} />
+      {/* 放映室入口：尼康 Z 红标，悬浮 tooltip + 红晕 */}
+      <Tooltip label={t('cinema.entryHint')} side="bottom">
           <Link
             href="/cinema"
             title={t('cinema.entryHint')}
@@ -573,12 +671,14 @@ export function HeroWall() {
                   FRAME {String((shownIndex ?? 0) + 1).padStart(3, '0')}
                 </span>
                 <span data-doc className="text-[11px] text-muted">
-                  {brand?.name ?? shownMeta?.make ?? '—'}
+                  {brand?.name ?? shownMeta?.make ?? ''}
                 </span>
               </div>
-              <p data-doc className="mt-2 text-[16px] font-semibold">
-                {shownMeta?.modelPretty ?? '—'}
-              </p>
+              {shownMeta?.modelPretty ? (
+                <p data-doc className="mt-2 text-[16px] font-semibold">
+                  {shownMeta.modelPretty}
+                </p>
+              ) : null}
               <p data-doc className="mt-0.5 text-[12px] tabular-nums text-muted">
                 {[
                   shownMeta ? formatParams(shownMeta) : undefined,
@@ -609,11 +709,14 @@ export function HeroWall() {
         </div>
       </div>
 
-      {!(selectedEntry && panelOpen) ? (
+      {!(selectedItem && panelOpen) ? (
         <p className="pointer-events-none absolute bottom-[calc(env(safe-area-inset-bottom,0px)+18px)] left-1/2 z-20 -translate-x-1/2 text-center text-[11px] tracking-[2px] text-muted">
           {t('landing.browsableHint').toUpperCase()}
         </p>
       ) : null}
+
+      {/* 档案征集弹窗：作品集批量上传（文件夹 / 多选 / 拖拽），满 120 张入馆换墙 */}
+      <ArchiveIntakeModal open={archiveOpen} onClose={closeArchive} />
 
       {/* 更换背景音乐弹窗：本地文件 + https 网络音源（校验失败在弹窗内联提示） */}
       <RemoteMediaDialog

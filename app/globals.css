@@ -91,6 +91,7 @@
   --muted: #9caabd;
   --line: rgba(208, 226, 243, 0.2);
   --accent: #d9ad7d;
+  --accent-glow: rgba(217, 173, 125, 0.35);
   --veil: rgba(10, 21, 37, 0.75);
   --ok: #8c9b7b;
   --stage: #0b1728;
@@ -106,6 +107,7 @@
   --muted: #74786f;
   --line: rgba(42, 49, 42, 0.18);
   --accent: #b56834;
+  --accent-glow: rgba(181, 104, 52, 0.35);
   --veil: rgba(236, 233, 225, 0.72);
   --ok: #6d7f5c;
   --stage: #ddd9d3;
