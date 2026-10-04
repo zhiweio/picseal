@@ -11,12 +11,12 @@ const TOKEN_RE = /\$(?:model|lens|param|datetime|gps|brand)/g
 /**
  * 解析字段槽位内容：'$model' 等令牌 → 元数据文本；字面文本原样输出。
  * 复合内容（如 "$model    $datetime"，semi-utils normal2 的"段名+时间"一行式）
- * 逐令牌解析、字面间隔保留。令牌缺失时按策略显示 '-' 或空串（R-06）。
+ * 逐令牌解析、字面间隔保留。令牌缺失时按策略显示 '-' 或留空（R-06），缺省留空。
  */
 export function resolveField(
   content: string,
   ctx: FieldContext,
-  policy: 'dash' | 'hide' = 'dash'
+  policy: 'dash' | 'hide' = 'hide'
 ): string {
   const missing = policy === 'hide' ? '' : '-'
   const tokens = content.match(TOKEN_RE)
@@ -45,7 +45,7 @@ export function resolveField(
 export function resolveLines(
   slots: Array<{ enabled: boolean; content: string }>,
   ctx: FieldContext,
-  policy: 'dash' | 'hide' = 'dash'
+  policy: 'dash' | 'hide' = 'hide'
 ): string[] {
   return slots
     .filter((s) => s.enabled)

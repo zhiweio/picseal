@@ -142,7 +142,7 @@ function resolveAllLines(
   template: WatermarkTemplate,
   fieldCtx: Parameters<typeof resolveField>[1]
 ): ResolvedLines {
-  const policy = template.fieldPolicy ?? 'dash'
+  const policy = template.fieldPolicy ?? 'hide'
   const b = template.banner
   const banner: BannerLines = {
     leftTop: b.leftTop.enabled ? resolveField(b.leftTop.content, fieldCtx, policy) : '',

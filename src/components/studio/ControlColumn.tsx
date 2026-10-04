@@ -230,7 +230,7 @@ function FieldsPanel() {
             { value: 'dash', label: t('fields.missingDash') },
             { value: 'hide', label: t('fields.missingHide') }
           ]}
-          value={template.fieldPolicy ?? 'dash'}
+          value={template.fieldPolicy ?? 'hide'}
           onChange={(v) => update((d) => void (d.fieldPolicy = v as 'dash' | 'hide'))}
         />
       </Row>

@@ -125,7 +125,7 @@ export interface WatermarkTemplate {
     /** 尼康 Z 款的红色标记字符等特殊处理 */
     markColor?: string
   }
-  /** 元数据缺失时的占位策略：'-' 占位（semi-utils 策略）或整行隐藏；缺省 'dash' 兼容旧预设 */
+  /** 元数据缺失时的占位策略：整行留空（缺省）或 '-' 占位（semi-utils 策略） */
   fieldPolicy?: 'dash' | 'hide'
 }
 

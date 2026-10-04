@@ -65,7 +65,7 @@ export const templateSchema = z.object({
     scale: z.number().min(0.6).max(1.4),
     markColor: z.string().optional()
   }),
-  /** 元数据缺失时的占位策略：'-' 占位（semi-utils 策略）或整行隐藏；缺省 'dash' 兼容旧预设 */
+  /** 元数据缺失时的占位策略：整行留空（缺省）或 '-' 占位（semi-utils 策略） */
   fieldPolicy: z.enum(['dash', 'hide']).optional()
 })
 
