@@ -36,11 +36,27 @@ export interface BrandDef {
   modelTransforms?: Array<{ pattern: RegExp; replace: string }>
 }
 
-/** 字段槽位：横幅布局的四个象限 / 角标布局的行 */
+/** 槽位字体覆写：全部可选 = 跟随模板全局（typography.font/scale + 所在行的默认字重/颜色） */
+export interface SlotFontStyle {
+  /** 字体家族（core/fonts/registry 的 FontFamilyId） */
+  font?: string
+  /** 字号相对缩放 0.5–2.0，1 = 跟随模板 */
+  scale?: number
+  /** 字重覆写（限所选家族可用字重，见 FontFamilyDef.weights） */
+  weight?: number
+  /** 合成斜体（内置字体无真斜体字面，浏览器光栅器合成 oblique） */
+  italic?: boolean
+  /** 文字颜色 #hex */
+  color?: string
+}
+
+/** 字段槽位：横幅布局的四个象限 / 角标布局的行 / 居中布局的标题与说明 */
 export interface FieldSlot {
   enabled: boolean
   /** '$model' '$lens' '$param' '$datetime' '$gps' '$brand' 或字面文本 */
   content: string
+  /** 高级字体覆写（缺省继承全局设置） */
+  style?: SlotFontStyle
 }
 
 export type TemplateLayout = 'banner' | 'card' | 'corner' | 'center-logo'

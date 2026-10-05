@@ -351,6 +351,49 @@ blur.json 的文字槽位带 `trim: true`——**墨迹语义**：机型/参数�
 
 **A/B 实测**（nikon-z8 横幅三联：REF/HALVING/PICA，`post-fix/P25-ab-kernel-compare.jpg`）：两内核在同渲染尺度下**观感一致**——笔画密度、边缘平滑、logo 细节均达参照水准。**默认取 halving**（零依赖、同步确定性、无 WebGL 依赖；pica 为异步路径需 flush 防竞态），pica 经 devtools 写 `localStorage['picseal-prefs']` 信封（`state.resizeKernel='pica'`）随时可选；`drawImageSmoothed` 接口已隔离，内核替换为单点改动。测试 107/107 ✅。：首验发现图注被渲染成黑色——R-05 的亮度自适应在亮背景上把橙(232,141,52)切成了深色。新增 `CornerStyle.contrastFix`（缺省开），图注模板设 `contrastFix: false` 保留品牌橙原样（semi normal2 源码即无条件橙色）；其余模板的自动对比度保障不受影响。实测橙色单行右下 ✓。
 
+### 5.10 逐槽位高级字体覆写（2026-10-05，studio 功能增强）
+
+**需求**：studio「样式」面板新增「高级字体 / ADVANCED TYPE」区块（默认折叠），对当前布局的每个文字槽位独立设置字体（家族）、字号（相对缩放 0.5–2.0）、字重（限所选家族可用字重）、斜体（合成 oblique）、颜色（6 预设色板 + 自定义取色）；一键「还原默认」清除全部覆写。
+
+**数据模型**：`FieldSlot.style?: SlotFontStyle`（`{ font?, scale?, weight?, italic?, color? }` 全可选）——一处 schema 变更同时覆盖横幅四象限、`corner.lines[]`、`center.title/caption` 三类槽位；schema optional 向后兼容（旧预设照常解析），worker 收到完整模板对象故协议零改动。
+
+**渲染语义**（叠加在官方比例系统之上，不破坏既有度量）：
+1. **槽位字号乘数**：行墨迹高 = 主/副行基准（slotH 或 /1.13）× 槽位 scale。全局 `typography.scale` 的效果已含在行基准内（slotH 的 inkScale 与横幅增长），槽位 scale 不与之重复相乘，1 = 与模板默认渲染一致。
+2. **同带墨迹底线对齐保持**：带高 = 带内启用行最大墨迹高，矮行 `y = bandTop + bandH − rowH`——延续官方左右栏底线对齐语义（5.2 节）。
+3. **横幅高度增长**（`computeBannerHeight`）：块高预估计入上/下带最大乘数（`slotRatio×top + slotRatio/1.13×bottom + middleRatio`）；无覆写时与旧公式逐项相等，scale=1 且无覆写严格等于 heightRatio×photoH 的不变量保持（BAN-004 只增不减）。
+4. **三级退化管线不动**：收缩/截断逐行按各自墨迹高参与测量与预算分配，`solveBannerHeight` 的 fits 判定与落位同口径（slotStyles 贯通传入）。
+5. **斜体**：内置字体均无真斜体字面，`italic` 走 Canvas font shorthand 由光栅器合成 oblique；预览与导出同走 worker canvas，表现一致。`getInkBlock` 缓存键追加 italic 位。
+6. **颜色/字重/家族逐行化**：横幅 `drawRow` 按槽位解析样式取墨迹位图；`drawCorner` 底锚累加公式在乘数全 1 时与固定行距逐像素一致；`drawCenterStack` 颜色由调用方合并槽位色并完成对比度解析（R-05 保持，用户色也过 `ensureContrastColor`）。
+7. **字体加载**：`renderPhoto` 收集全部活跃槽位涉及家族统一 `ensureFamily`（CJK 判定沿用全局文本）；槽位覆写家族非法（预设手改）时回退全局家族，渲染永不静默失败（A11 教训）。
+
+**UI**（ControlColumn）：`FontSelect` 复用组件（分组下拉 + 「跟随模板」空值项）；`AdvancedFontSection` 按布局暴露槽位组（横幅四象限 / 雾面卡机型+参数 / 角标行 N；center-logo 无文字不显示）；每槽位覆写指示点 + 单槽清除；折叠头带覆写计数，展开动画经全局 prefers-reduced-motion 规则自动降级。**顺带修复**：`SlotSelect` 改内容时重建 slot 对象丢附加字段的 bug（改 spread 保留 `style`）。
+
+**验证**：`pnpm typecheck` ✅、`pnpm test` 210/210 ✅（banner.test 扩至 27 用例：槽位乘数行高/底线对齐/测量传参/收缩截断联动/computeBannerHeight 增长与不变量/solve 不截断；新增 slot-style.test 5 用例、schema.test 7 用例 roundtrip 与非法值拒绝）。
+
+### 5.11 槽位字体加载失败的渲染韧性（2026-10-05，用户反馈"Z字红标/角标参数/图注高级字体不生效"修复）
+
+**排查结论**：三个模板（card+blur 的 drawCenterStack 路径、corner 的 drawCorner 路径）与横幅路径的槽位样式消费链路经浏览器逐模板实测**均正确生效**（字体/字号/字重/斜体/颜色全部可见变化）。真实根因在加载层：`renderPhoto` 中任一 `ensureFamily` 字体拉取失败（dev 服务器重启/编译窗口/网络瞬断——高级字体设置让槽位可引用全新家族，拉取面成倍扩大）会让整个渲染抛错，而 `usePreview` 对 `ok:false`/reject **静默保留旧预览帧**——表现即"设置无法生效"且所有后续调整全部无响应，直至改回已加载字体或刷新页面。
+
+**修复**（A11"禁止静默降级"的工程化落地——降级必须可见而非杀死渲染）：
+1. `renderPhoto` 字体加载改为韧性路径：全局家族先行加载（槽位家族的回退目标）；槽位家族失败 → console.warn + 已解析样式的该家族回退为模板全局家族；全局家族失败 → canvas `", sans-serif"` 兜底链呈现。尼康 Z 符号字体失败同理退回正文字体。渲染从此不因字体问题中断。
+2. CJK 子集按**家族实际渲染的文本**判定（familyCjk 映射），替代旧的全局"任一文本非拉丁则所有家族都拉 CJK"——消除逐槽位字体带来的多 MB 跨家族超取拖慢首帧。
+3. `usePreview` 对渲染失败不再完全静默：console.warn 留诊断线索（保留旧帧的 UI 行为不变——闪烁比冻结更伤体验的取舍）。
+
+**验证**：停掉 dev 服务器（全字体拉取失败的最坏场景）后改槽位字体+颜色，预览仍持续更新（回退字体 + 颜色原样生效，contrastFix:false 模板可见黑色文字）——修复前该场景预览必然冻结；服务器恢复后正常路径逐模板复测无回归。`pnpm typecheck` ✅、210/210 ✅。
+
+### 5.12 尼康 Z 符号字形锁定（2026-10-06，用户指定：字号/颜色可改，字体/字体样式任何情况下不可改）
+
+**决策**：尼康 Z 符号字体（SpecialAlphabets P04 双线斜切 Z，R-12）是品牌锁定元素——高级字体覆写（及任何未来行级样式机制）对它的作用域限定为**字号与颜色**；字体家族、字重、斜体在任何情况下不得生效。
+
+**实现**（三层防线 + 颜色语义收紧）：
+1. **拒绝作为行字体**（`resolveSlotStyle` + `renderPhoto`）：槽位 `style.font` 指向 symbol 组家族一律回退全局家族；`typography.font`（全局）被预设手改为符号家族时回退 `DEFAULT_FONT`。UI 字体选择器本就排除 symbol 组，此为预设导入/手改 JSON 的纵深防御。
+2. **混排段锁定**（`buildInkBlock`/`drawInkSegments` 的 `segStyleOf`）：异字体段（Z 符号）永远以该字体**自身 mainWeight、非斜体**测量与绘制——行级字重/斜体覆写只作用于正文段。墨迹位图与直绘回退两条路径同口径。
+3. **颜色跟随行色**（新增 `ResolvedRowStyle.colorOverridden`）：行色被用户**显式覆写**时，Z 符号随行色（"颜色可以改"）；未覆写时保持模板品牌色语义（nikon-z 模板红 Z / 官方白底正文色 Z）不变。
+4. 字号随行：Z 在行墨迹块内按大写字高归一，行 scale 缩放自然带动 Z 等比变化，无需特判。
+
+**验证**：`pnpm typecheck` ✅、214/214 ✅（slot-style 新增符号家族拒绝与 colorOverridden 判据用例；canvas-utils 新增 drawInkSegments 锁定用例——行级 300+斜体覆写下正文段 `italic 300 Roboto`、Z 段恒为 `400 NikonZSymbol`）。无 Z 系机身样片，mark 门控的浏览器端到端以非 Z 机型无标回归替代（单元测试覆盖字形锁定）。
+
+
 ## 6. 环境与产物索引
 
 - 参照基准（审美）：`~/Projects/github/semi-utils/static/*.jpeg`（7 张官方样例，未改动）。

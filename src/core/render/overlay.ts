@@ -11,6 +11,7 @@ import {
   sampleLuminance,
   type Ctx2D
 } from './canvas-utils'
+import type { ResolvedRowStyle } from './slot-style'
 
 /**
  * 角标排版 —— semi-utils normal1/normal2 锚点移植：
@@ -28,38 +29,54 @@ export function drawCorner(
   family: FontFamilyId,
   typographyScale: number,
   mainWeight: number,
-  subWeight: number
+  subWeight: number,
+  /** 逐行解析样式（高级字体覆写；缺省项 = 原行为：行 0 主字重主色，其余副） */
+  lineStyles?: ResolvedRowStyle[]
 ): void {
   if (lines.length === 0) return
   const size = height * corner.sizeRatio * typographyScale
   const insetY = height * 0.05
   const anchorX = corner.position === 'bottom-right' ? width * 0.93 : width * 0.07
   const align = corner.position === 'bottom-right' ? 'right' : 'left'
-  const lineGap = size * (1 + corner.lineGap)
   const shadow = corner.textShadow
     ? { shadowColor: 'rgba(0,0,0,0.45)', shadowBlur: size * 0.4, shadowOffsetY: size * 0.06 }
     : undefined
 
   // 品牌色语义强的模板（图注橙）可关闭自动切换（contrastFix=false）
-  let mainColor = corner.color
-  let subColor = corner.subColor
-  if (corner.contrastFix !== false) {
-    const sampleX = corner.position === 'bottom-right' ? width * 0.45 : width * 0.05
-    const luma = sampleLuminance(ctx, sampleX, height * 0.84, width * 0.5, height * 0.1)
-    mainColor = ensureContrastColor(corner.color, luma)
-    subColor = ensureContrastColor(corner.subColor, luma)
+  const luma =
+    corner.contrastFix !== false
+      ? sampleLuminance(
+          ctx,
+          corner.position === 'bottom-right' ? width * 0.45 : width * 0.05,
+          height * 0.84,
+          width * 0.5,
+          height * 0.1
+        )
+      : null
+  const fixColor = (c: string) => ensureContrastColor(c, luma)
+  const rowStyleOf = (i: number): ResolvedRowStyle => {
+    const o = lineStyles?.[i]
+    const top = i === 0 && !corner.allSub
+    return {
+      family: o?.family ?? family,
+      weight: o?.weight ?? (top ? mainWeight : subWeight),
+      italic: o?.italic ?? false,
+      color: fixColor(o?.color ?? (top ? corner.color : corner.subColor)),
+      scale: o?.scale ?? 1,
+      colorOverridden: o?.color !== undefined
+    }
   }
 
   // 逐行走 InkBlock 墨迹位图（超采样+水平裁切+渐进半缩），fallback 直绘
-  const drawInkRow = (text: string, x: number, rowTop: number, inkH: number, weight: number, color: string) => {
-    const block = getInkBlock(family, weight, text, color)
+  const drawInkRow = (text: string, x: number, rowTop: number, inkH: number, st: ResolvedRowStyle) => {
+    const block = getInkBlock(st.family, st.weight, text, st.color, undefined, st.italic)
     if (block) {
       const w = block.naturalW * (inkH / block.naturalH)
       const bx = align === 'right' ? x - w : x
       drawImageSmoothed(ctx, block.canvas, bx, rowTop, w, inkH)
       return
     }
-    drawInkText(ctx, text, x, rowTop, inkH, { family, weight, color }, align)
+    drawInkText(ctx, text, x, rowTop, inkH, { ...st }, align)
   }
 
   if (shadow) {
@@ -68,12 +85,19 @@ export function drawCorner(
     ctx.shadowOffsetY = shadow.shadowOffsetY
   }
 
+  // 底线锚定：最末行墨迹底 = height − insetY，向上逐行排；
+  // 行距 = 该行墨迹高 × (1 + lineGap)——全默认（scale 皆 1）时与固定行距逐像素一致
+  const rowTops: number[] = new Array(lines.length)
+  let cursorBottom = height - insetY
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const inkH = size * rowStyleOf(i).scale
+    rowTops[i] = cursorBottom - inkH
+    cursorBottom = rowTops[i]! - inkH * corner.lineGap
+  }
+
   lines.forEach((text, i) => {
-    const weight = i === 0 && !corner.allSub ? mainWeight : subWeight
-    const color = i === 0 ? mainColor : subColor
-    // 底线锚定：最末行墨迹底 = height − insetY，向上逐行排（行高 = 墨迹高）
-    const lineBottom = height - insetY - (lines.length - 1 - i) * lineGap
-    drawInkRow(text, anchorX, lineBottom - size, size, weight, color)
+    const st = rowStyleOf(i)
+    drawInkRow(text, anchorX, rowTops[i]!, size * st.scale, st)
   })
 
   ctx.shadowColor = 'transparent'
@@ -153,38 +177,67 @@ export function drawCenterStack(
     mark?: { color?: string; family: FontFamilyId }
     modelColor?: string
     paramsColor?: string
+    /** 槽位解析样式（高级字体覆写；缺省项 = 原行为） */
+    modelStyle?: ResolvedRowStyle
+    paramsStyle?: ResolvedRowStyle
   }
 ): void {
   const modelColor = opts.modelColor ?? '#ffffff'
   const paramsColor = opts.paramsColor ?? '#ffffff'
 
-  const drawLine = (text: string, y: number, inkH: number, weight: number, color: string, markOn: boolean) => {
+  const drawLine = (
+    text: string,
+    y: number,
+    inkH: number,
+    weight: number,
+    color: string,
+    markOn: boolean,
+    st?: ResolvedRowStyle
+  ) => {
     if (!text) return
-    const mark = markOn && opts.mark ? opts.mark : undefined
-    const block = getInkBlock(opts.family, weight, text, color, mark)
+    // 颜色由调用方合并槽位色并完成对比度解析后经参数传入；style 仅贡献家族/字重/斜体/字号
+    const style = {
+      family: st?.family ?? opts.family,
+      weight: st?.weight ?? weight,
+      italic: st?.italic ?? false,
+      scale: st?.scale ?? 1,
+      colorOverridden: st?.colorOverridden ?? false,
+      color
+    }
+    // 槽位字号乘数：行墨迹高放大/缩小，锚点 y 不变（布局比例仍按官方 3% 图高）
+    const lineH = inkH * style.scale
+    // 尼康 Z 符号字形：行色被显式覆写时跟随行色（颜色可改），
+    // 字体/字重/斜体在 getInkBlock/drawInkSegments 内永远锁定为符号字体自身
+    const mark =
+      markOn && opts.mark
+        ? style.colorOverridden
+          ? { color: style.color, family: opts.mark.family }
+          : opts.mark
+        : undefined
+    const block = getInkBlock(style.family, style.weight, text, style.color, mark, style.italic)
     if (block) {
-      const w = block.naturalW * (inkH / block.naturalH)
-      drawImageSmoothed(ctx, block.canvas, centerX - w / 2, y, w, inkH)
+      const w = block.naturalW * (lineH / block.naturalH)
+      drawImageSmoothed(ctx, block.canvas, centerX - w / 2, y, w, lineH)
       return
     }
-    const style = { family: opts.family, weight, color }
+    const inkStyle = { family: style.family, weight: style.weight, color: style.color, italic: style.italic }
     if (mark) {
       drawInkSegments(
         ctx,
-        markSegments(text, color, mark.color ?? color, 'Z', mark.family),
+        markSegments(text, style.color, mark.color ?? style.color, 'Z', mark.family),
         centerX,
         y,
-        inkH,
-        style,
+        lineH,
+        inkStyle,
         'center'
       )
     } else {
-      drawInkText(ctx, text, centerX, y, inkH, style, 'center')
+      drawInkText(ctx, text, centerX, y, lineH, inkStyle, 'center')
     }
   }
 
-  drawLine(model, modelY, opts.modelH, opts.mainWeight, modelColor, true)
-  drawLine(params, paramsY, opts.paramsH, opts.subWeight, paramsColor, true)
+  drawLine(model, modelY, opts.modelH, opts.mainWeight, modelColor, true, opts.modelStyle)
+  drawLine(params, paramsY, opts.paramsH, opts.subWeight, paramsColor, true, opts.paramsStyle)
 }
 
 /** 装裱底板（白边/圆角/投影） */

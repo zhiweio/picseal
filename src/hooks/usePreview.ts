@@ -85,11 +85,17 @@ export function usePreview(
             }
             cache.set(key, value)
             setPreview(value)
+          } else if (gen === generation.current) {
+            // 渲染失败不能静默冻结在旧帧（表现为"设置不生效"），至少留下诊断线索
+            console.warn('[picseal] preview render failed:', !res.ok ? res.error : 'unexpected response')
           }
           if (gen === generation.current) setRendering(false)
         })
-        .catch(() => {
-          if (gen === generation.current) setRendering(false)
+        .catch((err) => {
+          if (gen === generation.current) {
+            console.warn('[picseal] preview pipeline error:', err)
+            setRendering(false)
+          }
         })
     }, 160)
 

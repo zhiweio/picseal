@@ -1,6 +1,7 @@
 import type { BannerStyle, WatermarkTemplate } from '../types'
 import type { FontFamilyId } from '../fonts/registry'
 import { drawImageSmoothed, drawInkText, getInkBlock, measureInk, type Ctx2D } from './canvas-utils'
+import type { ResolvedRowStyle } from './slot-style'
 
 /* ───────────────────────── 横幅排印系统常量（semi-utils 官方值） ─────────────────────────
  * 全部相对条带宽/高；与 semi-utils static/standard1.json + WatermarkFilter 常量一一同构：
@@ -33,6 +34,11 @@ export const BANNER_METRICS = {
   contentFill: 0.72
 } as const
 
+export type BannerSlotPos = 'leftTop' | 'leftBottom' | 'rightTop' | 'rightBottom'
+
+/** 四象限槽位解析样式表（高级字体覆写渲染载体） */
+export type BannerSlotStyles = Partial<Record<BannerSlotPos, ResolvedRowStyle>>
+
 export interface BannerLines {
   leftTop: string
   leftBottom: string
@@ -50,6 +56,8 @@ export interface BannerSpec {
   transparentBg?: boolean
   /** 尼康 Z 专用字形：机型行中的 Z 用符号字体渲染（color 缺省 = 正文色，尼康官方风） */
   mark?: { color?: string; family: FontFamilyId }
+  /** 四象限槽位解析后的样式（高级字体覆写；缺省 = 模板全局，见 bannerRowStyle） */
+  slotStyles?: BannerSlotStyles
 }
 
 export interface BannerBox {
@@ -59,7 +67,7 @@ export interface BannerBox {
   h: number
 }
 
-/** 行盒 + 绘制信息：h 为该行墨迹高（Bold 行 = Light × 1.13），text 为退化策略处理后的最终文本 */
+/** 行盒 + 绘制信息：h 为该行墨迹高（主行基准 = slotH，副行 = /1.13，各含槽位字号乘数），text 为退化策略处理后的最终文本 */
 export interface BannerRowBox extends BannerBox {
   text: string
 }
@@ -67,7 +75,7 @@ export interface BannerRowBox extends BannerBox {
 export interface BannerLayout {
   bannerH: number
   slotH: number
-  /** 收缩后主行墨迹高（≤ slotH；等于 slotH 表示未收缩）；副行 = lineH / boldInkRatio */
+  /** 收缩后主行墨迹高基准（≤ slotH；等于 slotH 表示未收缩；各槽位实际墨迹高 = 基准 × 槽位乘数） */
   lineH: number
   elemH: number
   /** 文字块顶相对条带顶的偏移（单行时即垂直居中结果） */
@@ -85,22 +93,51 @@ export interface BannerLayout {
 export interface MeasureInput {
   text: string
   weight: number
-  /** 目标墨迹高（主行 = slotH，副行 = slotH / boldInkRatio） */
+  /** 目标墨迹高（已含主/副行比与槽位字号乘数） */
   slotH: number
+  /** 该行的家族/斜体（槽位覆写后的解析值） */
+  family: FontFamilyId
+  italic: boolean
 }
 
 export type MeasureFn = (input: MeasureInput) => number
+
+/**
+ * 槽位样式缺省解析（spec.slotStyles 缺省 = 模板全局）：测量、落位、绘制三处共用
+ * 同一出口，杜绝口径漂移。主行（上）= mainWeight/textColor，副行（下）= subWeight/subColor。
+ */
+export function bannerRowStyle(
+  spec: Pick<BannerSpec, 'banner' | 'family' | 'mainWeight' | 'subWeight' | 'slotStyles'>,
+  pos: BannerSlotPos
+): ResolvedRowStyle {
+  const custom = spec.slotStyles?.[pos]
+  if (custom) return custom
+  const top = pos === 'leftTop' || pos === 'rightTop'
+  return {
+    family: spec.family,
+    weight: top ? spec.mainWeight : spec.subWeight,
+    italic: false,
+    color: top ? spec.banner.textColor : spec.banner.subColor,
+    scale: 1,
+    colorOverridden: false
+  }
+}
 
 /**
  * 横幅高度单一来源（geometry 与条带矩形共用，消除三处同步风险）。
  * - typography.scale 只缩放文字内容，横幅高度随内容**只增不减**：
  *   scale=1 时严格等于 heightRatio×photoH（与历史渲染像素一致）；
  *   scale>1 触发内容超界时自动扩展（BAN-004：缩放增大方向不再被收缩抵消）。
+ * - 槽位字号覆写同样参与块高预估（取上/下带最大乘数），无覆写时与原公式逐项一致。
  */
 export function computeBannerHeight(template: WatermarkTemplate, photoH: number): number {
   const base = photoH * template.banner.heightRatio
   const M = BANNER_METRICS
-  const blockRatio = M.slotRatio + M.slotRatio / M.boldInkRatio + M.middleRatio
+  const b = template.banner
+  const top = Math.max(b.leftTop?.style?.scale ?? 1, b.rightTop?.style?.scale ?? 1)
+  const bottom = Math.max(b.leftBottom?.style?.scale ?? 1, b.rightBottom?.style?.scale ?? 1)
+  const blockRatio =
+    M.slotRatio * top + (M.slotRatio / M.boldInkRatio) * bottom + M.middleRatio
   const block = template.typography.scale * blockRatio * base
   return Math.max(base, block / M.contentFill)
 }
@@ -110,11 +147,16 @@ export function computeBannerHeight(template: WatermarkTemplate, photoH: number)
  * 一切行高 = 墨迹高（Bold 行 = Light × 1.13），测量/绘制全部基于墨迹位图；
  * 宽度分配与退化策略：固定项预算 → 三级退化（缩字 0.7× → 辅行截断 → 主行截断）
  * → 最小间隙（结构性禁止叠压）→ 降级布局（右栏空隐藏分隔线/单行垂直居中/紧凑模式）。
+ * 槽位字号覆写是行基准墨迹高之上的乘数：同带内墨迹底线对齐（矮行底部上移），
+ * 官方比例语义在全默认（乘数皆 1）时逐项保持。
  */
 export function computeBannerLayout(
   strip: { x: number; y: number; w: number; h: number },
   lines: BannerLines,
-  spec: Pick<BannerSpec, 'banner' | 'mainWeight' | 'subWeight' | 'logo' | 'transparentBg'>,
+  spec: Pick<
+    BannerSpec,
+    'banner' | 'family' | 'mainWeight' | 'subWeight' | 'logo' | 'transparentBg' | 'slotStyles'
+  >,
   measure: MeasureFn,
   /** 墨迹缩放乘数（typography.scale<1 时缩小文字；横幅不变） */
   inkScale = 1
@@ -131,6 +173,19 @@ export function computeBannerLayout(
   const aspect = spec.logo ? spec.logo.width / spec.logo.height : 1
   // 副行（Light）墨迹高：主行 / 1.13
   const subOf = (mainInkH: number) => mainInkH / M.boldInkRatio
+
+  const isTopPos = (pos: BannerSlotPos) => pos === 'leftTop' || pos === 'rightTop'
+  /** 行墨迹高 = 主/副基准 × 槽位字号乘数 */
+  const rowH = (pos: BannerSlotPos, mainH: number) =>
+    (isTopPos(pos) ? mainH : subOf(mainH)) * bannerRowStyle(spec, pos).scale
+  const topScale = Math.max(
+    bannerRowStyle(spec, 'leftTop').scale,
+    bannerRowStyle(spec, 'rightTop').scale
+  )
+  const bottomScale = Math.max(
+    bannerRowStyle(spec, 'leftBottom').scale,
+    bannerRowStyle(spec, 'rightBottom').scale
+  )
 
   const rowsTop = !!(lines.leftTop || lines.rightTop)
   const rowsBottom = !!(lines.leftBottom || lines.rightBottom)
@@ -151,7 +206,7 @@ export function computeBannerLayout(
   }
 
   // ── 右 logo（尺寸依赖双行块高，先按双行满档估算） ──
-  const elemFull = slotH + subOf(slotH) + middle
+  const elemFull = slotH * topScale + subOf(slotH) * bottomScale + middle
   let rightLogo: BannerBox | null = null
   if (spec.logo && banner.logo.position === 'right') {
     let h = elemFull * banner.logo.heightRatio
@@ -163,7 +218,7 @@ export function computeBannerLayout(
     }
     if (w > strip.w * 0.18) {
       // 紧凑模式：横幅过窄时 logo 退到单行墨迹高
-      rightLogo = { x: 0, y: 0, w: Math.min(slotH * aspect, maxW), h: slotH }
+      rightLogo = { x: 0, y: 0, w: Math.min(slotH * topScale * aspect, maxW), h: slotH * topScale }
     } else {
       rightLogo = { x: 0, y: 0, w, h }
     }
@@ -180,12 +235,16 @@ export function computeBannerLayout(
   const gapLR = hasRight || (rightLogo && !leftLogo) ? minGap : 0
   const available = Math.max(0, x1 - leftX - rightStackW - gapLR)
 
-  // ── 需求测量与三级退化（主/副行墨迹高不同） ──
+  // ── 需求测量与三级退化（各行墨迹高独立：主/副行比 × 槽位字号乘数） ──
+  const measureRow = (pos: BannerSlotPos, text: string, mainH: number) => {
+    const st = bannerRowStyle(spec, pos)
+    return measure({ text, weight: st.weight, family: st.family, italic: st.italic, slotH: rowH(pos, mainH) })
+  }
   const measureAll = (mainH: number, src: BannerLines = lines) => ({
-    lt: src.leftTop ? measure({ text: src.leftTop, weight: spec.mainWeight, slotH: mainH }) : 0,
-    lb: src.leftBottom ? measure({ text: src.leftBottom, weight: spec.subWeight, slotH: subOf(mainH) }) : 0,
-    rt: src.rightTop ? measure({ text: src.rightTop, weight: spec.mainWeight, slotH: mainH }) : 0,
-    rb: src.rightBottom ? measure({ text: src.rightBottom, weight: spec.subWeight, slotH: subOf(mainH) }) : 0
+    lt: src.leftTop ? measureRow('leftTop', src.leftTop, mainH) : 0,
+    lb: src.leftBottom ? measureRow('leftBottom', src.leftBottom, mainH) : 0,
+    rt: src.rightTop ? measureRow('rightTop', src.rightTop, mainH) : 0,
+    rb: src.rightBottom ? measureRow('rightBottom', src.rightBottom, mainH) : 0
   })
 
   const first = measureAll(slotH)
@@ -205,9 +264,12 @@ export function computeBannerLayout(
     const demand = Math.max(1, Math.max(w.lt, w.lb) + Math.max(w.rt, w.rb))
     const budgetL = available * (Math.max(w.lt, w.lb) / demand)
     const budgetR = Math.max(0, available - budgetL)
-    const fit = (text: string, weight: number, maxW: number, rowH: number): string => {
+    const fit = (text: string, pos: BannerSlotPos, maxW: number): string => {
       if (!text) return ''
-      if (measure({ text, weight, slotH: rowH }) <= maxW) return text
+      const st = bannerRowStyle(spec, pos)
+      const probe = (cand: string) =>
+        measure({ text: cand, weight: st.weight, family: st.family, italic: st.italic, slotH: rowH(pos, lineH) })
+      if (probe(text) <= maxW) return text
       if (maxW <= 0) return ''
       let lo = 0
       let hi = text.length
@@ -216,7 +278,7 @@ export function computeBannerLayout(
         const mid = (lo + hi) >> 1
         const cand = (text.slice(0, mid).trimEnd() + (mid > 0 ? '…' : '')).trim()
         if (!cand) return ''
-        if (measure({ text: cand, weight, slotH: rowH }) <= maxW) {
+        if (probe(cand) <= maxW) {
           best = cand
           lo = mid + 1
         } else {
@@ -225,39 +287,47 @@ export function computeBannerLayout(
       }
       return best
     }
-    texts.leftBottom = fit(lines.leftBottom, spec.subWeight, budgetL, subOf(lineH))
-    texts.leftTop = fit(lines.leftTop, spec.mainWeight, budgetL, lineH)
-    texts.rightBottom = fit(lines.rightBottom, spec.subWeight, budgetR, subOf(lineH))
-    texts.rightTop = fit(lines.rightTop, spec.mainWeight, budgetR, lineH)
+    texts.leftBottom = fit(lines.leftBottom, 'leftBottom', budgetL)
+    texts.leftTop = fit(lines.leftTop, 'leftTop', budgetL)
+    texts.rightBottom = fit(lines.rightBottom, 'rightBottom', budgetR)
+    texts.rightTop = fit(lines.rightTop, 'rightTop', budgetR)
     w = measureAll(lineH, texts)
     truncated = true
   }
   const maxL = Math.max(w.lt, w.lb)
   const maxR = Math.max(w.rt, w.rb)
 
-  // ── 纵向：实际行块（按启用行）在条带内垂直居中（单行自动居中，BAN-006） ──
-  const topInkH = lineH
-  const bottomInkH = subOf(lineH)
-  const blockH = (rowsTop ? topInkH : 0) + (rowsTop && rowsBottom ? middle : 0) + (rowsBottom ? bottomInkH : 0)
-  const elemH = Math.max(blockH, lineH)
+  // ── 纵向：实际行块（按启用行）在条带内垂直居中；同带墨迹底线对齐（矮行底部上移，BAN 官方语义） ──
+  const topBand = Math.max(
+    lines.leftTop ? rowH('leftTop', lineH) : 0,
+    lines.rightTop ? rowH('rightTop', lineH) : 0
+  )
+  const bottomBand = Math.max(
+    lines.leftBottom ? rowH('leftBottom', lineH) : 0,
+    lines.rightBottom ? rowH('rightBottom', lineH) : 0
+  )
+  const blockH = (rowsTop ? topBand : 0) + (rowsTop && rowsBottom ? middle : 0) + (rowsBottom ? bottomBand : 0)
+  const elemH = Math.max(blockH, topBand)
   const blockTop = strip.y + (bannerH - blockH) / 2
-  const topY = blockTop
-  const bottomY = blockTop + (rowsTop ? topInkH + middle : 0)
+  const rowY = (pos: BannerSlotPos) =>
+    isTopPos(pos)
+      ? blockTop + topBand - rowH(pos, lineH)
+      : blockTop + (rowsTop ? topBand + middle : 0) + bottomBand - rowH(pos, lineH)
 
   // ── 右栏与堆叠落位（自右向左，结构性保证不相交） ──
   const rightColLeft = x1 - maxR
   const rt: BannerRowBox = {
     x: banner.rightAlign === 'near' ? rightColLeft : x1 - w.rt,
-    y: topY,
+    y: rowY('rightTop'),
     w: w.rt,
-    h: topInkH,
+    h: rowH('rightTop', lineH),
     text: texts.rightTop
   }
   const rb: BannerRowBox = {
     x: banner.rightAlign === 'near' ? rightColLeft : x1 - w.rb,
-    y: bottomY,
+    y: rowY('rightBottom'),
     w: w.rb,
-    h: bottomInkH,
+    h: rowH('rightBottom', lineH),
     text: texts.rightBottom
   }
 
@@ -287,8 +357,8 @@ export function computeBannerLayout(
     }
   }
 
-  const lt: BannerRowBox = { x: leftX, y: topY, w: w.lt, h: topInkH, text: texts.leftTop }
-  const lb: BannerRowBox = { x: leftX, y: bottomY, w: w.lb, h: bottomInkH, text: texts.leftBottom }
+  const lt: BannerRowBox = { x: leftX, y: rowY('leftTop'), w: w.lt, h: rowH('leftTop', lineH), text: texts.leftTop }
+  const lb: BannerRowBox = { x: leftX, y: rowY('leftBottom'), w: w.lb, h: rowH('leftBottom', lineH), text: texts.leftBottom }
 
   return {
     bannerH,
@@ -315,6 +385,7 @@ function delimWidth(stripW: number, banner: BannerStyle): number {
  * 固定 heightRatio 在竖幅/长文本上必然溢出（宽度需求 > 条带宽），
  * 用墨迹位图实测槽位宽度，从官方比例向下搜索第一个可容纳的档位（步进 0.25% 图高，
  * 下限 4.5%）；横幅照片装得下时保持官方比例。宽度与高度线性关系，墨迹位图缓存下开销极低。
+ * slotStyles：四象限槽位解析样式（高级字体覆写），与落位/绘制同口径参与判定。
  */
 export function solveBannerHeight(
   template: WatermarkTemplate,
@@ -325,7 +396,8 @@ export function solveBannerHeight(
   mainWeight: number,
   subWeight: number,
   mark?: { color?: string; family: FontFamilyId },
-  logoAspect = 1
+  logoAspect = 1,
+  slotStyles?: BannerSlotStyles
 ): number {
   const M = BANNER_METRICS
   const officialRatio = template.banner.heightRatio
@@ -340,13 +412,15 @@ export function solveBannerHeight(
       lines,
       {
         banner: template.banner,
+        family,
         mainWeight,
         subWeight,
         // 与渲染同宽高比的合成 logo：预算必须包含 logo 占位（否则 solve 偏乐观导致截断）
-        logo: logoAspect > 0 ? ({ width: logoAspect, height: 1 } as unknown as ImageBitmap) : null
+        logo: logoAspect > 0 ? ({ width: logoAspect, height: 1 } as unknown as ImageBitmap) : null,
+        slotStyles
       },
       (input) => {
-        const block = getInkBlock(family, input.weight, input.text, template.banner.textColor, mark)
+        const block = getInkBlock(input.family, input.weight, input.text, template.banner.textColor, mark, input.italic)
         if (block) return block.naturalW * (input.slotH / block.naturalH)
         return input.text.length * input.slotH * 0.55
       },
@@ -369,6 +443,7 @@ export function solveBannerHeight(
 /**
  * 绘制横幅：全部行以墨迹位图（超采样裁切）落位——semi-utils 的 Canvas 等价实现；
  * 环境不支持 OffscreenCanvas 时回退 drawInkText 行盒绘制。
+ * 各行按槽位解析样式（家族/字重/斜体/颜色）取墨迹位图，测量与绘制同口径。
  */
 export function drawBannerStrip(
   ctx: Ctx2D,
@@ -384,28 +459,41 @@ export function drawBannerStrip(
     ctx.fillRect(strip.x, strip.y, strip.w, strip.h)
   }
 
-  const measure = ({ text, weight, slotH }: MeasureInput) => {
-    const block = getInkBlock(spec.family, weight, text, banner.textColor, spec.mark)
+  const measure = ({ text, weight, family, italic, slotH }: MeasureInput) => {
+    const block = getInkBlock(family, weight, text, banner.textColor, spec.mark, italic)
     if (block) return block.naturalW * (slotH / block.naturalH)
-    return measureInk(ctx, text, spec.family, weight, slotH).width
+    return measureInk(ctx, text, family, weight, slotH, undefined, italic).width
   }
   const layout = computeBannerLayout(strip, lines, spec, measure, inkScale)
 
-  const drawRow = (row: BannerRowBox, weight: number, color: string) => {
+  const drawRow = (row: BannerRowBox, pos: BannerSlotPos) => {
     if (!row.text) return
-    const block = getInkBlock(spec.family, weight, row.text, color, spec.mark)
+    const st = bannerRowStyle(spec, pos)
+    // 尼康 Z 符号字形（spec.mark）：行色被显式覆写时跟随行色（颜色可改），
+    // 字体/字重/斜体在 getInkBlock 内永远锁定为符号字体自身——任何情况下官方字形
+    const mark =
+      spec.mark && st.colorOverridden ? { color: st.color, family: spec.mark.family } : spec.mark
+    const block = getInkBlock(st.family, st.weight, row.text, st.color, mark, st.italic)
     if (block) {
       const w = row.w > 0 ? row.w : block.naturalW * (row.h / block.naturalH)
       drawImageSmoothed(ctx, block.canvas, row.x, row.y, w, row.h)
       return
     }
-    drawInkText(ctx, row.text, row.x, row.y, row.h, { family: spec.family, weight, color }, 'left')
+    drawInkText(
+      ctx,
+      row.text,
+      row.x,
+      row.y,
+      row.h,
+      { family: st.family, weight: st.weight, color: st.color, italic: st.italic },
+      'left'
+    )
   }
 
-  drawRow(layout.rt, spec.mainWeight, banner.textColor)
-  drawRow(layout.rb, spec.subWeight, banner.subColor)
-  drawRow(layout.lt, spec.mainWeight, banner.textColor)
-  drawRow(layout.lb, spec.subWeight, banner.subColor)
+  drawRow(layout.rt, 'rightTop')
+  drawRow(layout.rb, 'rightBottom')
+  drawRow(layout.lt, 'leftTop')
+  drawRow(layout.lb, 'leftBottom')
 
   if (layout.logo) {
     // logo 位图 2048 级 → 目标 ~126px（16×），必须渐进半缩否则边缘锯齿

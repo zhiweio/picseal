@@ -142,6 +142,73 @@ describe('markSegments（尼康 Z 专用字形，R-04/R-12）', () => {
   })
 })
 
+describe('尼康 Z 符号字形锁定（字号/颜色可变；字体/字重/斜体任何情况下不可变）', () => {
+  it('drawInkSegments：行级字重/斜体覆写不得污染异字体段，Z 恒为符号字体自身主字重非斜体', async () => {
+    const { drawInkSegments } = await import('./canvas-utils')
+    const fills: Array<{ text: string; font: string }> = []
+    const ctx = {
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      fillStyle: '',
+      measureText: (text: string) => ({
+        width: text.length * 100,
+        fontBoundingBoxAscent: 190,
+        fontBoundingBoxDescent: 50,
+        actualBoundingBoxAscent: 145,
+        actualBoundingBoxDescent: 5
+      }),
+      fillText: function (this: { font: string }, text: string) {
+        fills.push({ text, font: this.font })
+      }
+    } as unknown as Ctx2D & { fillText: (t: string) => void }
+
+    // 行级覆写：Light(300) + 斜体 —— 正文段应遵循，Z 段不得
+    drawInkSegments(
+      ctx,
+      [
+        { text: 'NIKON ', color: '#ffffff' },
+        { text: 'Z', color: '#ff0000', family: 'nikon-z-symbol' },
+        { text: ' 8', color: '#ffffff' }
+      ],
+      0,
+      100,
+      72,
+      { family: 'roboto', weight: 300, color: '#ffffff', italic: true },
+      'left'
+    )
+    expect(fills).toHaveLength(3)
+    // 正文段：行的字重/斜体生效
+    expect(fills[0]!.font).toMatch(/^italic 300 \d+(\.\d+)?px "Picseal Roboto", sans-serif$/)
+    expect(fills[2]!.font).toMatch(/^italic 300 \d+(\.\d+)?px "Picseal Roboto", sans-serif$/)
+    // Z 段：恒为符号字体自身 mainWeight(400)、非斜体——任何行级覆写都不生效
+    expect(fills[1]!.font).toMatch(/^400 \d+(\.\d+)?px "Picseal NikonZSymbol", sans-serif$/)
+  })
+
+  it('drawInkText 整行直绘时斜体随 style（非混排路径不受锁定影响）', async () => {
+    const { drawInkText } = await import('./canvas-utils')
+    const fonts: string[] = []
+    const ctx = {
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      fillStyle: '',
+      measureText: (text: string) => ({
+        width: text.length * 100,
+        fontBoundingBoxAscent: 190,
+        fontBoundingBoxDescent: 50,
+        actualBoundingBoxAscent: 145,
+        actualBoundingBoxDescent: 5
+      }),
+      fillText: function (this: { font: string }, text: string) {
+        fonts.push(this.font)
+      }
+    } as unknown as Ctx2D
+    drawInkText(ctx, 'NIKON Z 8', 0, 100, 72, { family: 'roboto', weight: 300, color: '#fff', italic: true }, 'left')
+    expect(fonts[0]).toMatch(/^italic 300 \d+(\.\d+)?px "Picseal Roboto", sans-serif$/)
+  })
+})
+
 describe('ensureContrastColor（叠印可读性，R-05）', () => {
   it('亮背景 + 白字 → 切换深色', () => {
     expect(ensureContrastColor('#ffffff', 0.92)).toBe('#1a1a1a')

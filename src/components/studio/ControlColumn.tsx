@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import clsx from 'clsx'
-import { Download, Plus, Save, Trash2, Upload } from 'lucide-react'
+import { ChevronDown, Download, Plus, RotateCcw, Save, Trash2, Upload, X } from 'lucide-react'
 import {
   Panel,
   Row,
@@ -13,8 +13,8 @@ import {
   TermSwitch
 } from '@/components/ui/primitives'
 import { BUILTIN_TEMPLATES } from '@/core/templates/builtin'
-import { FONT_FAMILIES, FONT_GROUP_LABELS, type FontGroup } from '@/core/fonts/registry'
-import type { FieldSlot, WatermarkTemplate } from '@/core/types'
+import { FONT_FAMILIES, FONT_GROUP_LABELS, getFontFamily } from '@/core/fonts/registry'
+import type { FieldSlot, SlotFontStyle, WatermarkTemplate } from '@/core/types'
 import { useSettings, type SavedPreset } from '@/stores/settings'
 import { usePhotos } from '@/stores/photos'
 import { getRenderPool } from '@/workers/pool'
@@ -55,6 +55,7 @@ function SlotSelect({
         onChange={(e) => {
           const v = e.target.value
           onChange({
+            ...slot,
             enabled: slot.enabled,
             content: v === '__custom' ? (slot.content.startsWith('$') ? '' : slot.content) : v
           })
@@ -71,10 +72,322 @@ function SlotSelect({
       {mode === '__custom' ? (
         <input
           value={slot.content.startsWith('$') ? '' : slot.content}
-          onChange={(e) => onChange({ enabled: slot.enabled, content: e.target.value })}
+          onChange={(e) => onChange({ ...slot, enabled: slot.enabled, content: e.target.value })}
           placeholder={t('fields.custom')}
           className="h-7 w-24 border border-line bg-transparent px-1.5 text-[11px] outline-none focus:border-accent"
         />
+      ) : null}
+    </div>
+  )
+}
+
+/** 字体家族选择（分组下拉）；allowInherit 时提供空值选项 = 跟随模板 */
+function FontSelect({
+  value,
+  onChange,
+  allowInherit,
+  inheritLabel
+}: {
+  value: string
+  onChange: (v: string) => void
+  allowInherit?: boolean
+  inheritLabel?: string
+}) {
+  const groups = Object.keys(FONT_GROUP_LABELS) as Array<keyof typeof FONT_GROUP_LABELS>
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-7 min-w-0 flex-1 border border-line bg-transparent px-1.5 text-[11px] outline-none"
+    >
+      {allowInherit ? <option value="">{inheritLabel}</option> : null}
+      {groups.map((group) => (
+        <optgroup key={group} label={`${FONT_GROUP_LABELS[group].zh} / ${FONT_GROUP_LABELS[group].en}`}>
+          {Object.values(FONT_FAMILIES)
+            .filter((f) => f.group === group)
+            .map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+        </optgroup>
+      ))}
+    </select>
+  )
+}
+
+/* ───────────────── 高级字体设置（逐槽位覆写，默认折叠） ───────────────── */
+
+/** 槽位入口：字段路径随布局不同，由调用方闭包绑定读写 */
+interface SlotEntry {
+  key: string
+  label: string
+  slot: FieldSlot
+  setSlot: (next: FieldSlot) => void
+}
+
+const ADV_PRESET_COLORS = ['#FFFFFF', '#111111', '#F5F0E6', '#9C9C9C', '#E88D34', '#E3001B']
+
+const ADV_WEIGHT_KEYS: Record<number, string> = {
+  300: 'advW300',
+  400: 'advW400',
+  500: 'advW500',
+  600: 'advW600',
+  700: 'advW700',
+  800: 'advW800'
+}
+
+const hasStyleOverride = (style?: SlotFontStyle): boolean =>
+  !!style && Object.keys(style).length > 0
+
+function SlotStyleBlock({ entry, template }: { entry: SlotEntry; template: WatermarkTemplate }) {
+  const t = useTranslations('studio')
+  const style = entry.slot.style
+  const overridden = hasStyleOverride(style)
+  // 字重选项跟随生效家族（覆写家族或模板全局家族）
+  const effDef = getFontFamily(style?.font || template.typography.font)
+  const weightLabel = (w: number): string => {
+    const key = ADV_WEIGHT_KEYS[w]
+    return key ? t(`appearance.${key}`) : String(w)
+  }
+
+  const patchStyle = (patch: Partial<SlotFontStyle>) => {
+    const next: SlotFontStyle = { ...style, ...patch }
+    ;(Object.keys(next) as Array<keyof SlotFontStyle>).forEach((k) => {
+      if (next[k] === undefined) delete next[k]
+    })
+    entry.setSlot({ ...entry.slot, style: Object.keys(next).length > 0 ? next : undefined })
+  }
+
+  return (
+    <div className="border-b border-line/60 py-1.5 last:border-b-0">
+      <div className="flex items-center justify-between pb-0.5">
+        <span className="flex items-center gap-1.5">
+          <span className={clsx('h-1.5 w-1.5', overridden ? 'bg-accent' : 'bg-line')} />
+          <span className="hud-label text-[9px]">{entry.label}</span>
+        </span>
+        {overridden ? (
+          <button
+            type="button"
+            aria-label={t('appearance.advClear')}
+            title={t('appearance.advClear')}
+            onClick={() => entry.setSlot({ ...entry.slot, style: undefined })}
+            className="p-0.5 text-muted transition-colors hover:text-accent"
+          >
+            <X size={10} />
+          </button>
+        ) : null}
+      </div>
+      <Row label={t('appearance.advFont')}>
+        <FontSelect
+          value={style?.font ?? ''}
+          allowInherit
+          inheritLabel={t('appearance.advInherit')}
+          onChange={(v) => {
+            // 切换家族后字重覆写若不被新家族支持则一并清除
+            const def = getFontFamily(v || template.typography.font)
+            const w = style?.weight
+            patchStyle({
+              font: v || undefined,
+              weight: w !== undefined && def.weights.includes(w) ? w : undefined
+            })
+          }}
+        />
+      </Row>
+      <Row label={t('appearance.advSize')}>
+        <div className="w-32">
+          <TermSlider
+            value={style?.scale ?? 1}
+            min={0.5}
+            max={2}
+            step={0.05}
+            onValueChange={(v) => patchStyle({ scale: v === 1 ? undefined : v })}
+            format={(v) => `${Math.round(v * 100)}%`}
+          />
+        </div>
+      </Row>
+      <Row label={t('appearance.advWeight')}>
+        <select
+          value={style?.weight ?? ''}
+          onChange={(e) => patchStyle({ weight: e.target.value ? Number(e.target.value) : undefined })}
+          className="h-7 w-36 border border-line bg-transparent px-1.5 text-[11px] outline-none"
+        >
+          <option value="">{t('appearance.advInherit')}</option>
+          {effDef.weights.map((w) => (
+            <option key={w} value={w}>
+              {weightLabel(w)}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label={t('appearance.advItalic')}>
+        <TermSwitch
+          checked={style?.italic ?? false}
+          onCheckedChange={(v) => patchStyle({ italic: v || undefined })}
+        />
+      </Row>
+      <Row label={t('appearance.advColor')}>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            aria-label={t('appearance.advInherit')}
+            title={t('appearance.advInherit')}
+            onClick={() => patchStyle({ color: undefined })}
+            className={clsx(
+              'relative h-4 w-4 overflow-hidden border',
+              !style?.color ? 'border-accent' : 'border-line'
+            )}
+          >
+            <span className="absolute left-1/2 top-1/2 h-[1px] w-[22px] -translate-x-1/2 -translate-y-1/2 rotate-45 bg-line" />
+          </button>
+          {ADV_PRESET_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-label={c}
+              onClick={() => patchStyle({ color: c })}
+              className={clsx(
+                'h-4 w-4 border',
+                style?.color?.toUpperCase() === c ? 'border-accent' : 'border-line'
+              )}
+              style={{ background: c }}
+            />
+          ))}
+          <input
+            type="color"
+            aria-label={t('appearance.advCustom')}
+            title={t('appearance.advCustom')}
+            value={style?.color ?? '#000000'}
+            onChange={(e) => patchStyle({ color: e.target.value })}
+            className="h-4 w-4 cursor-pointer border border-line bg-transparent p-0"
+          />
+        </div>
+      </Row>
+    </div>
+  )
+}
+
+/** 高级字体区块：按布局暴露当前模板的文字槽位，逐槽位覆写字体/字号/字重/斜体/颜色 */
+function AdvancedFontSection() {
+  const t = useTranslations('studio')
+  const template = useSettings((s) => s.template)
+  const update = useSettings((s) => s.update)
+  const [open, setOpen] = useState(false)
+
+  // 居中标识布局不渲染文字，无槽位可设置
+  if (template.layout === 'center-logo') return null
+
+  const bannerActive =
+    template.layout === 'banner' || (template.layout === 'card' && template.canvas.mount !== 'blur')
+  const blurActive = template.layout === 'card' && template.canvas.mount === 'blur'
+
+  const entries: SlotEntry[] = []
+  if (bannerActive) {
+    entries.push(
+      {
+        key: 'lt',
+        label: t('appearance.advSlotLT'),
+        slot: template.banner.leftTop,
+        setSlot: (s) => update((d) => void (d.banner.leftTop = s))
+      },
+      {
+        key: 'lb',
+        label: t('appearance.advSlotLB'),
+        slot: template.banner.leftBottom,
+        setSlot: (s) => update((d) => void (d.banner.leftBottom = s))
+      },
+      {
+        key: 'rt',
+        label: t('appearance.advSlotRT'),
+        slot: template.banner.rightTop,
+        setSlot: (s) => update((d) => void (d.banner.rightTop = s))
+      },
+      {
+        key: 'rb',
+        label: t('appearance.advSlotRB'),
+        slot: template.banner.rightBottom,
+        setSlot: (s) => update((d) => void (d.banner.rightBottom = s))
+      }
+    )
+  } else if (blurActive) {
+    entries.push(
+      {
+        key: 'title',
+        label: t('appearance.advModel'),
+        slot: template.center.title,
+        setSlot: (s) => update((d) => void (d.center.title = s))
+      },
+      {
+        key: 'caption',
+        label: t('appearance.advParams'),
+        slot: template.center.caption,
+        setSlot: (s) => update((d) => void (d.center.caption = s))
+      }
+    )
+  } else {
+    template.corner.lines.forEach((slot, i) => {
+      entries.push({
+        key: `line-${i}`,
+        label: t('appearance.advRowN', { n: i + 1 }),
+        slot,
+        setSlot: (s) => update((d) => void (d.corner.lines[i] = s))
+      })
+    })
+  }
+
+  const overrideCount = entries.filter((e) => hasStyleOverride(e.slot.style)).length
+
+  // 还原默认 = 清除全部槽位的高级覆写（横幅四槽位 + 角标行 + 居中标题/说明），全局设置不动
+  const resetAll = () =>
+    update((d) => {
+      d.banner.leftTop.style = undefined
+      d.banner.leftBottom.style = undefined
+      d.banner.rightTop.style = undefined
+      d.banner.rightBottom.style = undefined
+      d.corner.lines.forEach((l) => {
+        l.style = undefined
+      })
+      d.center.title.style = undefined
+      d.center.caption.style = undefined
+    })
+
+  return (
+    <div className="mt-1 border border-line">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-2.5 py-2 text-left transition-colors hover:bg-ink/5"
+      >
+        <span className="hud-label text-[9px]">
+          {t('appearance.advTitle')}
+          <span className="text-ink/60"> / {t('appearance.advTitleEn')}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          {overrideCount > 0 ? (
+            <span className="text-[9px] tabular-nums text-accent">{overrideCount}</span>
+          ) : null}
+          <ChevronDown
+            size={12}
+            className={clsx('text-muted transition-transform duration-200', open && 'rotate-180')}
+          />
+        </span>
+      </button>
+      {open ? (
+        <div className="border-t border-line px-2.5 pb-2.5 pt-1.5">
+          <p className="pb-1 text-[10px] leading-relaxed text-muted/80">{t('appearance.advHint')}</p>
+          {entries.map((entry) => (
+            <SlotStyleBlock key={entry.key} entry={entry} template={template} />
+          ))}
+          <TermButton
+            variant="line"
+            className="mt-2 w-full justify-center"
+            onClick={resetAll}
+            disabled={overrideCount === 0}
+          >
+            <RotateCcw size={11} /> {t('appearance.advReset')}
+          </TermButton>
+        </div>
       ) : null}
     </div>
   )
@@ -315,28 +628,13 @@ function AppearancePanel() {
   const template = useSettings((s) => s.template)
   const update = useSettings((s) => s.update)
 
-  const fontGroups = Object.keys(FONT_GROUP_LABELS) as Array<keyof typeof FONT_GROUP_LABELS>
-
   return (
     <Panel label={t('appearance.label')} labelEn={t('appearance.labelEn')}>
       <Row label={t('appearance.font')}>
-        <select
+        <FontSelect
           value={template.typography.font}
-          onChange={(e) => update((d) => void (d.typography.font = e.target.value))}
-          className="h-7 min-w-0 flex-1 border border-line bg-transparent px-1.5 text-[11px] outline-none"
-        >
-          {fontGroups.map((group) => (
-            <optgroup key={group} label={`${FONT_GROUP_LABELS[group].zh} / ${FONT_GROUP_LABELS[group].en}`}>
-              {Object.values(FONT_FAMILIES)
-                .filter((f) => f.group === group)
-                .map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </select>
+          onChange={(v) => update((d) => void (d.typography.font = v))}
+        />
       </Row>
       <Row label={t('appearance.scale')}>
         <div className="w-36">
@@ -350,6 +648,8 @@ function AppearancePanel() {
           />
         </div>
       </Row>
+
+      <AdvancedFontSection />
 
       {template.layout === 'banner' || (template.layout === 'card' && template.canvas.mount !== 'blur') ? (
         <Row label={t('appearance.bannerHeight')}>

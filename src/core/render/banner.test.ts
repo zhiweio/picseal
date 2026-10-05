@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   BANNER_METRICS,
+  bannerRowStyle,
   computeBannerHeight,
   computeBannerLayout,
+  solveBannerHeight,
   type BannerLines,
   type BannerSpec,
   type MeasureFn
@@ -35,8 +37,12 @@ const measure: MeasureFn = ({ text, slotH }) => text.length * 40 * (slotH / 240)
 
 const fakeLogo = { width: 100, height: 100 } as ImageBitmap
 
-const spec = (overrides: Partial<BannerStyle> = {}, logo: ImageBitmap | null = fakeLogo): Pick<BannerSpec, 'banner' | 'mainWeight' | 'subWeight' | 'logo'> => ({
+const spec = (
+  overrides: Partial<BannerStyle> = {},
+  logo: ImageBitmap | null = fakeLogo
+): Pick<BannerSpec, 'banner' | 'family' | 'mainWeight' | 'subWeight' | 'logo'> => ({
   banner: { ...banner, ...overrides },
+  family: 'archivo',
   mainWeight: 600,
   subWeight: 400,
   logo
@@ -209,5 +215,146 @@ describe('computeBannerHeight（横幅高度单一来源）', () => {
 
   it('scale<1 只缩内容不缩横幅（只增不减）', () => {
     expect(computeBannerHeight(t(0.6), 2200)).toBeCloseTo(220)
+  })
+
+  it('槽位字号覆写参与块高预估：scale=1 + 槽位放大时横幅增长；无覆写时不变', () => {
+    const slot = (scale?: number) => ({ enabled: true, content: '$model', ...(scale ? { style: { scale } } : {}) })
+    const plain = { banner: { heightRatio: 0.1 }, typography: { scale: 1 } } as unknown as WatermarkTemplate
+    expect(computeBannerHeight(plain, 2200)).toBeCloseTo(220)
+    const grown = {
+      banner: { heightRatio: 0.1, leftTop: slot(1.5), leftBottom: slot(), rightTop: slot(), rightBottom: slot(2) },
+      typography: { scale: 1 }
+    } as unknown as WatermarkTemplate
+    const h = computeBannerHeight(grown, 2200)
+    expect(h).toBeGreaterThan(220)
+    const blockRatio = M.slotRatio * 1.5 + (M.slotRatio / M.boldInkRatio) * 2 + M.middleRatio
+    expect(h).toBeCloseTo((blockRatio * 220) / M.contentFill)
+  })
+})
+
+describe('槽位样式（高级字体覆写）', () => {
+  const scaleSlot = (scale: number) => ({ enabled: true, content: '$model', style: { scale } })
+  const styleSpec = (
+    slotStyles: BannerSpec['slotStyles'],
+    overrides: Partial<BannerStyle> = {}
+  ) => ({ ...spec(overrides), slotStyles })
+
+  it('槽位字号乘数：上行行高 = slotH × scale，下行 = subSlotH × scale', () => {
+    const layout = computeBannerLayout(
+      strip,
+      lines,
+      styleSpec({ leftTop: { ...bannerRowStyle(spec(), 'leftTop'), scale: 1.5 } }),
+      measure
+    )
+    expect(layout.lt.h).toBeCloseTo(slotH * 1.5)
+    expect(layout.rt.h).toBeCloseTo(slotH)
+    expect(layout.lb.h).toBeCloseTo(subSlotH)
+  })
+
+  it('同带墨迹底线对齐保持：左行放大后与右行墨迹底齐平，块高随最大行增长', () => {
+    const layout = computeBannerLayout(
+      strip,
+      lines,
+      styleSpec({ leftTop: { ...bannerRowStyle(spec(), 'leftTop'), scale: 1.5 } }),
+      measure
+    )
+    expect(layout.lt.y + layout.lt.h).toBeCloseTo(layout.rt.y + layout.rt.h)
+    expect(layout.rt.y).toBeCloseTo(layout.lt.y + layout.lt.h - layout.rt.h)
+  })
+
+  it('下行放大：带内底线对齐 + 块高 = 上带 + middle + 下带最大值', () => {
+    const layout = computeBannerLayout(
+      strip,
+      lines,
+      styleSpec({
+        leftBottom: { ...bannerRowStyle(spec(), 'leftBottom'), scale: 2 },
+        rightBottom: { ...bannerRowStyle(spec(), 'rightBottom'), scale: 1 }
+      }),
+      measure
+    )
+    expect(layout.lb.h).toBeCloseTo(subSlotH * 2)
+    expect(layout.rb.h).toBeCloseTo(subSlotH)
+    expect(layout.lb.y + layout.lb.h).toBeCloseTo(layout.rb.y + layout.rb.h)
+    const blockH = slotH + middle + subSlotH * 2
+    expect(layout.elemMargin).toBeCloseTo((strip.h - blockH) / 2)
+  })
+
+  it('测量收到每行解析后的家族/字重/斜体', () => {
+    const seen: Array<{ text: string; family: string; weight: number; italic: boolean }> = []
+    const spy: MeasureFn = (input) => {
+      seen.push({ text: input.text, family: input.family, weight: input.weight, italic: input.italic })
+      return measure(input)
+    }
+    computeBannerLayout(
+      strip,
+      lines,
+      styleSpec({
+        rightTop: { family: 'bebas-neue', weight: 400, italic: true, color: '#ff0000', scale: 1, colorOverridden: true },
+        leftBottom: { ...bannerRowStyle(spec(), 'leftBottom'), italic: true }
+      }),
+      spy
+    )
+    const rt = seen.find((s) => s.text === lines.rightTop)
+    expect(rt).toMatchObject({ family: 'bebas-neue', weight: 400, italic: true })
+    const lb = seen.find((s) => s.text === lines.leftBottom)
+    expect(lb).toMatchObject({ family: 'archivo', weight: 400, italic: true })
+    const lt = seen.find((s) => s.text === lines.leftTop)
+    expect(lt).toMatchObject({ family: 'archivo', weight: 600, italic: false })
+  })
+
+  it('全默认（无 slotStyles）时退回模板全局：主/副字重与家族', () => {
+    const layout = computeBannerLayout(strip, lines, spec(), measure)
+    expect(layout.rt.h).toBeCloseTo(slotH)
+    expect(layout.rb.h).toBeCloseTo(subSlotH)
+  })
+
+  it('槽位放大参与收缩与截断判定：放大右上行会更早触底', () => {
+    const mid: BannerLines = { ...lines, rightTop: 'P'.repeat(250) }
+    const plain = computeBannerLayout(strip, mid, spec(), measure)
+    const scaled = computeBannerLayout(
+      strip,
+      mid,
+      styleSpec({ rightTop: { ...bannerRowStyle(spec(), 'rightTop'), scale: 1.6 } }),
+      measure
+    )
+    expect(scaled.lineH).toBeLessThan(plain.lineH)
+    expect(scaled.truncated).toBe(true)
+    expect(scaled.rt.h).toBeCloseTo(slotH * M.shrinkFloor * 1.6)
+  })
+
+  it('solveBannerHeight：槽位放大后返回的高度渲染不截断', () => {
+    const template = {
+      banner: { ...banner, leftTop: scaleSlot(1.4), leftBottom: scaleSlot(1), rightTop: scaleSlot(1), rightBottom: scaleSlot(1) },
+      typography: { scale: 1 }
+    } as unknown as WatermarkTemplate
+    const h = solveBannerHeight(template, strip.w, 2200, lines, 'archivo', 600, 400, undefined, 1, {
+      leftTop: { family: 'archivo', weight: 600, italic: false, color: banner.textColor, scale: 1.4, colorOverridden: false }
+    })
+    const layout = computeBannerLayout(
+      { x: 0, y: 0, w: strip.w, h: h },
+      lines,
+      { ...spec(), slotStyles: { leftTop: { family: 'archivo', weight: 600, italic: false, color: banner.textColor, scale: 1.4, colorOverridden: false } } },
+      measure
+    )
+    expect(layout.truncated).toBe(false)
+  })
+
+  it('bannerRowStyle 缺省回退：主行 mainWeight/textColor、副行 subWeight/subColor', () => {
+    expect(bannerRowStyle(spec(), 'leftTop')).toEqual({
+      family: 'archivo',
+      weight: 600,
+      italic: false,
+      color: banner.textColor,
+      scale: 1,
+      colorOverridden: false
+    })
+    expect(bannerRowStyle(spec(), 'rightBottom')).toEqual({
+      family: 'archivo',
+      weight: 400,
+      italic: false,
+      color: banner.subColor,
+      scale: 1,
+      colorOverridden: false
+    })
   })
 })

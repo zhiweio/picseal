@@ -83,6 +83,8 @@ export interface InkStyle {
   weight: number
   color: string
   caps?: boolean
+  /** 合成斜体（内置字体无真斜体字面，浏览器光栅器合成 oblique） */
+  italic?: boolean
   /** 显式字号（px）——横幅引擎用主行 fontPx 统一主/副行尺寸；缺省按 targetHeight 推导 */
   fontPx?: number
 }
@@ -100,8 +102,8 @@ export interface InkMetrics {
   ascent: number
 }
 
-function fontShorthand(def: { cssName: string }, weight: number, px: number): string {
-  return `${weight} ${px}px "${def.cssName}", sans-serif`
+function fontShorthand(def: { cssName: string }, weight: number, px: number, italic = false): string {
+  return `${italic ? 'italic ' : ''}${weight} ${px}px "${def.cssName}", sans-serif`
 }
 
 /**
@@ -131,13 +133,14 @@ export function measureInk(
   family: FontFamilyId,
   weight: number,
   targetHeight: number,
-  fontPxOverride?: number
+  fontPxOverride?: number,
+  italic = false
 ): InkMetrics {
   const def = getFontFamily(family)
   const text = def.capsOnly ? applyCaps(rawText) : rawText
 
   const probePx = fontPxOverride ?? PROBE_PX
-  ctx.font = fontShorthand(def, weight, probePx)
+  ctx.font = fontShorthand(def, weight, probePx, italic)
   const probe = ctx.measureText(text || ' ')
   const fbA = probe.fontBoundingBoxAscent
   const fbD = probe.fontBoundingBoxDescent
@@ -145,7 +148,7 @@ export function measureInk(
     fbA + fbD > 0 ? fbA + fbD : probe.actualBoundingBoxAscent + probe.actualBoundingBoxDescent || probePx
   const fontPx = fontPxOverride ?? (targetHeight * INK_FILTER * PROBE_PX) / probeBoxH
 
-  ctx.font = fontShorthand(def, weight, fontPx)
+  ctx.font = fontShorthand(def, weight, fontPx, italic)
   const m = ctx.measureText(text || ' ')
   const fontBox = m.fontBoundingBoxAscent + m.fontBoundingBoxDescent
   return {
@@ -178,14 +181,14 @@ export function drawInkText(
   if (!rawText) return 0
   const def = getFontFamily(style.family)
   const text = def.capsOnly ? applyCaps(rawText) : rawText
-  const m = measureInk(ctx, text, style.family, style.weight, targetHeight, style.fontPx)
+  const m = measureInk(ctx, text, style.family, style.weight, targetHeight, style.fontPx, style.italic)
 
   let originX: number
   if (align === 'left') originX = x
   else if (align === 'right') originX = x - m.width
   else originX = x - m.width / 2
 
-  ctx.font = fontShorthand(def, style.weight, m.fontPx)
+  ctx.font = fontShorthand(def, style.weight, m.fontPx, style.italic)
   ctx.fillStyle = style.color
   ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
@@ -207,13 +210,17 @@ export function drawInkSegments(
   align: 'left' | 'right' | 'center' = 'left',
   anchor: 'top' | 'baseline' = 'top'
 ): number {
+  // 异字体段（尼康 Z 符号字形）锁定该字体自身主字重、非斜体——行级字重/斜体覆写不得污染品牌字形
   const metrics = segments.map((seg) => {
     const fam = seg.family ?? style.family
-    const m = measureInk(ctx, seg.text, fam, style.weight, targetHeight, style.fontPx)
-    if (!seg.family || seg.family === style.family) return { w: m.width, px: style.fontPx }
-    const main = measureInk(ctx, 'M', style.family, style.weight, targetHeight, style.fontPx)
+    const foreign = !!seg.family && seg.family !== style.family
+    const segWeight = foreign ? getFontFamily(fam).mainWeight : style.weight
+    const segItalic = foreign ? false : !!style.italic
+    const m = measureInk(ctx, seg.text, fam, segWeight, targetHeight, style.fontPx, segItalic)
+    if (!foreign) return { w: m.width, px: style.fontPx, weight: segWeight, italic: segItalic }
+    const main = measureInk(ctx, 'M', style.family, style.weight, targetHeight, style.fontPx, style.italic)
     const scale = m.height > 0 && main.height > 0 ? main.height / m.height : 1
-    return { w: m.width * scale, px: (style.fontPx ?? m.fontPx) * scale }
+    return { w: m.width * scale, px: (style.fontPx ?? m.fontPx) * scale, weight: segWeight, italic: segItalic }
   })
   const total = metrics.reduce((a, m) => a + m.w, 0)
   let cursor = align === 'left' ? x : align === 'right' ? x - total : x - total / 2
@@ -224,7 +231,14 @@ export function drawInkSegments(
       cursor,
       y,
       targetHeight,
-      { ...style, color: seg.color ?? style.color, family: seg.family ?? style.family, fontPx: metrics[i]!.px },
+      {
+        ...style,
+        color: seg.color ?? style.color,
+        family: seg.family ?? style.family,
+        fontPx: metrics[i]!.px,
+        weight: metrics[i]!.weight,
+        italic: metrics[i]!.italic
+      },
       'left',
       anchor
     )
@@ -383,13 +397,14 @@ export function getInkBlock(
   weight: number,
   text: string,
   color: string,
-  mark?: { color?: string; family: FontFamilyId }
+  mark?: { color?: string; family: FontFamilyId },
+  italic = false
 ): InkBlock | null {
-  const key = `${family}|${weight}|${color}|${mark?.color ?? ''}|${mark?.family ?? ''}|${text}`
+  const key = `${family}|${weight}|${color}|${mark?.color ?? ''}|${mark?.family ?? ''}|${italic ? 'i' : ''}|${text}`
   const hit = inkBlockCache.get(key)
   if (hit !== undefined) return hit
 
-  const block = buildInkBlock(family, weight, text, color, mark)
+  const block = buildInkBlock(family, weight, text, color, mark, italic)
   if (inkBlockCache.size >= INK_CACHE_MAX) {
     const first = inkBlockCache.keys().next().value
     if (first !== undefined) inkBlockCache.delete(first)
@@ -403,7 +418,8 @@ function buildInkBlock(
   weight: number,
   text: string,
   color: string,
-  mark?: { color?: string; family: FontFamilyId }
+  mark?: { color?: string; family: FontFamilyId },
+  italic = false
 ): InkBlock | null {
   try {
     const scratch = inkScratchCtx()
@@ -419,12 +435,19 @@ function buildInkBlock(
       : [{ text: normalized, color }]
 
     // 逐段字号：异字体段按主字体大写字高归一（符号 Z 字形度量与正文不同）
-    scratch.font = fontShorthand(def, weight, px)
+    // 异字体段（尼康 Z 符号字形）永远以该字体自身主字重、非斜体呈现——
+    // 行级字重/斜体覆写不得污染品牌字形（Z 符号仅字号与颜色可变）
+    const segStyleOf = (seg: InkSegment): { weight: number; italic: boolean } =>
+      seg.family && seg.family !== family
+        ? { weight: getFontFamily(seg.family).mainWeight, italic: false }
+        : { weight, italic }
+    scratch.font = fontShorthand(def, weight, px, italic)
     const capProbe = scratch.measureText('M')
     const capH = capProbe.actualBoundingBoxAscent > 0 ? capProbe.actualBoundingBoxAscent : px * 0.72
     const widths = segments.map((seg) => {
       const segDef = getFontFamily(seg.family ?? family)
-      scratch.font = fontShorthand(segDef, weight, px)
+      const segSt = segStyleOf(seg)
+      scratch.font = fontShorthand(segDef, segSt.weight, px, segSt.italic)
       let w = scratch.measureText(seg.text).width
       if (seg.family && seg.family !== family) {
         const sym = scratch.measureText(seg.text)
@@ -446,14 +469,15 @@ function buildInkBlock(
     let cursor = pad
     segments.forEach((seg, i) => {
       const segDef = getFontFamily(seg.family ?? family)
+      const segSt = segStyleOf(seg)
       let segPx = px
       if (seg.family && seg.family !== family) {
-        scratch.font = fontShorthand(segDef, weight, px)
+        scratch.font = fontShorthand(segDef, segSt.weight, px, segSt.italic)
         const sym = scratch.measureText(seg.text)
         const symCap = sym.actualBoundingBoxAscent > 0 ? sym.actualBoundingBoxAscent : px
         segPx = px * (capH / symCap)
       }
-      c.font = fontShorthand(segDef, weight, segPx)
+      c.font = fontShorthand(segDef, segSt.weight, segPx, segSt.italic)
       c.fillStyle = seg.color ?? color
       c.fillText(seg.text, cursor, pad + ascent)
       cursor += widths[i]!

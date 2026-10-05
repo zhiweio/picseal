@@ -2,12 +2,22 @@ import { z } from 'zod'
 import { FONT_FAMILIES, DEFAULT_FONT, type FontFamilyId } from '../fonts/registry'
 import type { WatermarkTemplate } from '../types'
 
+const fontIds = Object.keys(FONT_FAMILIES) as [FontFamilyId, ...FontFamilyId[]]
+
 const fieldSlotSchema = z.object({
   enabled: z.boolean(),
-  content: z.string().max(80)
+  content: z.string().max(80),
+  /** 高级字体覆写（缺省继承全局；旧预设无此字段照常解析） */
+  style: z
+    .object({
+      font: z.enum(fontIds).optional(),
+      scale: z.number().min(0.5).max(2).optional(),
+      weight: z.number().int().min(100).max(900).optional(),
+      italic: z.boolean().optional(),
+      color: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).optional()
+    })
+    .optional()
 })
-
-const fontIds = Object.keys(FONT_FAMILIES) as [FontFamilyId, ...FontFamilyId[]]
 
 export const templateSchema = z.object({
   id: z.string().min(1).max(64),
