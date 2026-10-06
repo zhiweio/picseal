@@ -18,10 +18,10 @@ describe('字体注册表', () => {
     }
   })
 
-  it('四族分组齐备且标签映射完整（symbol 组仅供渲染内部消费，不进 UI）', () => {
+  it('四族分组齐备且标签映射完整（symbol/brand 组仅供渲染内部消费，不进 UI）', () => {
     const groups = new Set(Object.values(FONT_FAMILIES).map((f) => f.group))
     for (const group of groups) {
-      if (group === 'symbol') continue
+      if (group === 'symbol' || group === 'brand') continue
       expect(FONT_GROUP_LABELS[group]).toBeTruthy()
     }
     expect(groups.has('sans')).toBe(true)

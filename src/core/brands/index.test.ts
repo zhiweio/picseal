@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BRANDS, matchBrand, prettifyModel } from './index'
+import { BRANDS, matchBrand, prettifyModel, resolveBrandMark } from './index'
 import { BUILTIN_TEMPLATES, DEFAULT_TEMPLATE_ID, getBuiltinTemplate } from '../templates/builtin'
 import { parseTemplate } from '../templates/schema'
 
@@ -82,5 +82,79 @@ describe('builtin templates', () => {
   it('rejects malformed templates', () => {
     expect(() => parseTemplate({ id: 'x' })).toThrow()
     expect(() => parseTemplate({ ...getBuiltinTemplate('banner'), layout: 'bogus' })).toThrow()
+  })
+})
+
+describe('brand glyph marks（品牌锁定字形，数据驱动）', () => {
+  it('nikon glyph 数据完整：NIKON 字标（Nexa）+ Z 符号（Z 系门控）+ 代际数字', () => {
+    const nikon = BRANDS.find((b) => b.id === 'nikon')
+    expect(nikon?.glyph?.wordmark).toEqual({
+      match: 'NIKON',
+      family: 'brand-nikon',
+      weight: 400,
+      italic: true
+    })
+    expect(nikon?.glyph?.symbol).toEqual({
+      char: 'Z',
+      family: 'nikon-z-symbol',
+      modelPattern: /\bZ/
+    })
+    expect(nikon?.glyph?.numerals).toMatchObject({
+      family: 'archivo',
+      weight: 700,
+      spacing: 0.08
+    })
+  })
+
+  it('resolveBrandMark：Z 系机型 → 符号 + 字标 + 数字；D850 → 字标 + 数字（无符号）', () => {
+    const nikon = BRANDS.find((b) => b.id === 'nikon')
+    const z8 = resolveBrandMark(nikon, 'NIKON Z 8', '#ff0000')
+    expect(z8?.symbol).toEqual({ char: 'Z', family: 'nikon-z-symbol', color: '#ff0000' })
+    expect(z8?.wordmark).toMatchObject({ match: 'NIKON' })
+    expect(z8?.numerals).toMatchObject({ family: 'archivo', weight: 700 })
+    const d850 = resolveBrandMark(nikon, 'NIKON D850')
+    // R-04 门控：无 Z 机型不得使用符号 Z 字形
+    expect(d850?.symbol).toBeUndefined()
+    expect(d850?.wordmark).toMatchObject({ match: 'NIKON' })
+    expect(d850?.numerals).toMatchObject({ family: 'archivo' })
+  })
+
+  it('resolveBrandMark：索尼（α 符号 + SST 字标/数字）与佳能（Mark II 数字）', () => {
+    const sony = BRANDS.find((b) => b.id === 'sony')
+    const a7rv = resolveBrandMark(sony, 'α7R V')
+    expect(a7rv?.symbol).toEqual({ char: 'α', family: 'brand-sony-alpha', color: undefined })
+    expect(a7rv?.wordmark).toMatchObject({ match: 'SONY', family: 'brand-sony' })
+    expect(a7rv?.numerals).toMatchObject({ family: 'brand-sony' })
+    const canon = BRANDS.find((b) => b.id === 'canon')
+    const r6ii = resolveBrandMark(canon, 'Canon EOS R6 Mark II')
+    expect(r6ii?.wordmark).toMatchObject({ match: 'CANON', family: 'brand-canon' })
+    expect(r6ii?.numerals).toMatchObject({ family: 'archivo', weight: 700 })
+  })
+
+  it('resolveBrandMark：无 glyph 品牌（leica/hasselblad 阿拉伯数字传统）返回 undefined', () => {
+    const leica = BRANDS.find((b) => b.id === 'leica')
+    expect(resolveBrandMark(leica, 'LEICA M11')).toBeUndefined()
+    const hasselblad = BRANDS.find((b) => b.id === 'hasselblad')
+    expect(resolveBrandMark(hasselblad, 'X2D 100C')).toBeUndefined()
+    expect(resolveBrandMark(undefined, 'NIKON Z 8')).toBeUndefined()
+  })
+
+  it('glyph 数据快照：所有声明 glyph 的品牌字段结构合法', () => {
+    for (const brand of BRANDS) {
+      const g = brand.glyph
+      if (!g) continue
+      if (g.wordmark) {
+        expect(g.wordmark.match.length).toBeGreaterThan(0)
+        expect(g.wordmark.weight).toBeGreaterThan(0)
+      }
+      if (g.symbol) {
+        expect(g.symbol.char.length).toBe(1)
+      }
+      if (g.numerals) {
+        expect(g.numerals.pattern.source).toContain('$')
+        expect(g.numerals.weight).toBeGreaterThan(0)
+        expect(g.numerals.spacing ?? 0).toBeLessThan(0.3)
+      }
+    }
   })
 })

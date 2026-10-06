@@ -1,7 +1,14 @@
 import type { FieldSlot, PhotoMeta, RenderOptions, WatermarkTemplate } from '../types'
-import { BRANDS, DEFAULT_LOGO } from '../brands'
-import { getFontFamily, MARK_SYMBOL_FONT, DEFAULT_FONT, type FontFamilyId } from '../fonts/registry'
-import { drawBannerStrip, solveBannerHeight, type BannerLines, type BannerSlotStyles } from './banner'
+import { BRANDS, DEFAULT_LOGO, resolveBrandMark } from '../brands'
+import { getFontFamily, DEFAULT_FONT, type FontFamilyId } from '../fonts/registry'
+import {
+  drawBannerStrip,
+  solveBannerHeight,
+  type BannerLines,
+  type BannerSlotMarks,
+  type BannerSlotPos,
+  type BannerSlotStyles
+} from './banner'
 import {
   FontBook,
   LogoBook,
@@ -10,7 +17,8 @@ import {
   parseAspectRatio,
   roundedRectPath,
   sampleLuminance,
-  type Ctx2D
+  type Ctx2D,
+  type InkMark
 } from './canvas-utils'
 import { needsCjk, resolveField } from './fields'
 import { drawCenterStack, drawCorner, drawMount } from './overlay'
@@ -52,15 +60,30 @@ export async function renderPhoto(input: RenderInput): Promise<RenderedOutput> {
   const brand = meta.brandId ? BRANDS.find((b) => b.id === meta.brandId) : undefined
   const lines = resolveAllLines(template, { meta, brand })
 
-  // Z 字形门控（R-04/R-12）：仅尼康 Z 系机型使用官方特殊 Z 字形；
-  // markColor（红）仅在模板声明时叠加，横幅白底默认正文色（尼康官方风）
-  const nikonZ = brand?.id === 'nikon' && /\bZ/i.test(meta.modelPretty ?? '')
-  const markColor = nikonZ ? template.typography.markColor : undefined
-  const zMark = nikonZ ? { color: template.typography.markColor, family: MARK_SYMBOL_FONT.id } : undefined
-  // 符号字体加载失败不阻断渲染：Z 退回正文字体呈现
-  if (nikonZ) {
-    await input.fonts.ensureUrl(MARK_SYMBOL_FONT.cssName, MARK_SYMBOL_FONT.file).catch((err: unknown) => {
-      console.warn('[picseal] Z symbol font load failed, Z falls back to body font:', err)
+  // 品牌锁定字形（数据驱动 BrandDef.glyph，见 resolveBrandMark；锁定语义 = 仅字号与
+  // 颜色可变，家族/字重/斜体任何情况下不生效）。symbol 字符专用色 = 模板 markColor
+  // （nikon-z 模板红 Z 语义，泛化为任意模板可声明），缺省由消费端回退行色。
+  const brandMark = resolveBrandMark(brand, meta.modelPretty ?? '', template.typography.markColor)
+  // 符号家族加载失败：剥离符号段（符号字符退回正文字体），不阻断渲染（A11）
+  if (brandMark?.symbol) {
+    await input.fonts.ensureFamily(brandMark.symbol.family, false).catch((err: unknown) => {
+      console.warn('[picseal] brand symbol font load failed, falls back to body font:', err)
+      brandMark.symbol = undefined
+    })
+  }
+  // 字标家族加载失败：剥离字标段（整行一体呈现），不阻断渲染（A11）
+  const brandWordmark = brandMark?.wordmark
+  if (brandWordmark && lines.allText.some((t) => t.toUpperCase().includes(brandWordmark.match.toUpperCase()))) {
+    await input.fonts.ensureFamily(brandWordmark.family, false).catch((err: unknown) => {
+      console.warn('[picseal] brand wordmark font load failed, falls back to row font:', err)
+      if (brandMark) brandMark.wordmark = undefined
+    })
+  }
+  // 代际数字家族加载失败：剥离数字段（退回正文呈现），不阻断渲染（A11）
+  if (brandMark?.numerals) {
+    await input.fonts.ensureFamily(brandMark.numerals.family, false).catch((err: unknown) => {
+      console.warn('[picseal] brand numerals font load failed, falls back to row font:', err)
+      if (brandMark) brandMark.numerals = undefined
     })
   }
 
@@ -180,6 +203,23 @@ export async function renderPhoto(input: RenderInput): Promise<RenderedOutput> {
     }
   }
 
+  // ── 槽位门控：品牌锁定字形只作用于内容含 $model 令牌的槽位（机型信息），
+  // 镜头（NIKKOR Z）/参数/自定义文字如常渲染。brandMark 为 undefined（非尼康/
+  // 符号家族加载失败剥离）时全部为空，所有行如常。
+  const slotHasModel = (content: string) => content.includes('$model')
+  const bannerSlotMarks: BannerSlotMarks = {}
+  if (brandMark) {
+    if (slotHasModel(template.banner.leftTop.content)) bannerSlotMarks.leftTop = brandMark
+    if (slotHasModel(template.banner.leftBottom.content)) bannerSlotMarks.leftBottom = brandMark
+    if (slotHasModel(template.banner.rightTop.content)) bannerSlotMarks.rightTop = brandMark
+    if (slotHasModel(template.banner.rightBottom.content)) bannerSlotMarks.rightBottom = brandMark
+  }
+  const titleMark = brandMark && slotHasModel(template.center.title.content) ? brandMark : undefined
+  const captionMark = brandMark && slotHasModel(template.center.caption.content) ? brandMark : undefined
+  const cornerLineMarks = brandMark
+    ? lines.cornerSlots.map((slot) => (slotHasModel(slot.content) ? brandMark : undefined))
+    : undefined
+
   const typography = {
     family: fontDef.id,
     mainWeight: fontDef.mainWeight,
@@ -201,7 +241,7 @@ export async function renderPhoto(input: RenderInput): Promise<RenderedOutput> {
           fontDef.id,
           fontDef.mainWeight,
           fontDef.subWeight,
-          zMark,
+          bannerSlotMarks,
           logo ? logo.width / logo.height : 1,
           bannerSlotStyles
         )
@@ -227,9 +267,9 @@ export async function renderPhoto(input: RenderInput): Promise<RenderedOutput> {
           logo,
           g,
           typography,
-          zMark,
           bannerHScaled,
-          bannerSlotStyles
+          bannerSlotStyles,
+          bannerSlotMarks
         )
       }
     case 'card':
@@ -244,9 +284,10 @@ export async function renderPhoto(input: RenderInput): Promise<RenderedOutput> {
             g,
             s,
             typography,
-            zMark,
             modelStyle,
-            paramsStyle
+            paramsStyle,
+            titleMark,
+            captionMark
           )
         }
       }
@@ -260,15 +301,24 @@ export async function renderPhoto(input: RenderInput): Promise<RenderedOutput> {
           logo,
           g,
           typography,
-          zMark,
           bannerHScaled,
-          bannerSlotStyles
+          bannerSlotStyles,
+          bannerSlotMarks
         )
       }
     case 'corner':
       return {
         canvas,
-        photoRect: drawFlatWithCorner(ctx, photo, template, lines, g, typography, cornerLineStyles)
+        photoRect: drawFlatWithCorner(
+          ctx,
+          photo,
+          template,
+          lines,
+          g,
+          typography,
+          cornerLineStyles,
+          cornerLineMarks
+        )
       }
     case 'center-logo':
       return { canvas, photoRect: drawFlatWithCenterLogo(ctx, photo, template, logo, g, bannerHScaled) }
@@ -504,9 +554,9 @@ function drawFlatWithBanner(
   logo: ImageBitmap | null,
   g: RenderedGeometry,
   typography: Typography,
-  zMark: { color?: string; family: ReturnType<typeof getFontFamily>['id'] } | undefined,
   bannerH: number,
-  slotStyles?: BannerSlotStyles
+  slotStyles?: BannerSlotStyles,
+  slotMarks?: BannerSlotMarks
 ): RenderedGeometry['photoRect'] {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
@@ -522,7 +572,7 @@ function drawFlatWithBanner(
         mainWeight: typography.mainWeight,
         subWeight: typography.subWeight,
         logo,
-        mark: zMark,
+        marks: slotMarks,
         slotStyles
       },
       Math.min(1, typography.scale)
@@ -539,9 +589,9 @@ function drawMountedCard(
   logo: ImageBitmap | null,
   g: RenderedGeometry,
   typography: Typography,
-  zMark: { color?: string; family: ReturnType<typeof getFontFamily>['id'] } | undefined,
   bannerH: number,
-  slotStyles?: BannerSlotStyles
+  slotStyles?: BannerSlotStyles,
+  slotMarks?: BannerSlotMarks
 ): RenderedGeometry['photoRect'] {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
@@ -558,7 +608,7 @@ function drawMountedCard(
         subWeight: typography.subWeight,
         logo,
         transparentBg: true,
-        mark: zMark,
+        marks: slotMarks,
         slotStyles
       },
       Math.min(1, typography.scale)
@@ -582,9 +632,10 @@ function drawFrostedCard(
   g: RenderedGeometry,
   s: number,
   typography: Typography,
-  zMark?: { color?: string; family: ReturnType<typeof getFontFamily>['id'] },
   modelStyle?: ResolvedRowStyle,
-  paramsStyle?: ResolvedRowStyle
+  paramsStyle?: ResolvedRowStyle,
+  modelMark?: InkMark,
+  paramsMark?: InkMark
 ): RenderedGeometry['photoRect'] {
   const model = lines.centerTitle || lines.centerCaption
   const params = lines.centerCaption !== model ? lines.centerCaption : ''
@@ -658,7 +709,9 @@ function drawFrostedCard(
       subWeight: typography.subWeight,
       modelH: S(layout.modelH),
       paramsH: S(layout.paramsH),
-      mark: zMark,
+      // 品牌锁定字形仅机型槽位注入（内容含 $model 的行）
+      modelMark,
+      paramsMark,
       // 槽位覆写色并入对比度解析（R-05）：无覆写时保持白色基准
       modelColor: ensureContrastColor(modelStyle?.color ?? '#ffffff', textLuma),
       paramsColor: ensureContrastColor(paramsStyle?.color ?? '#ffffff', textLuma),
@@ -677,7 +730,8 @@ function drawFlatWithCorner(
   lines: ResolvedLines,
   g: RenderedGeometry,
   typography: Typography,
-  lineStyles?: ResolvedRowStyle[]
+  lineStyles?: ResolvedRowStyle[],
+  lineMarks?: Array<InkMark | undefined>
 ): RenderedGeometry['photoRect'] {
   fillBackdrop(ctx, g, t.canvas.mountColor)
   const radius = g.width * t.canvas.cornerRadius
@@ -692,7 +746,8 @@ function drawFlatWithCorner(
     typography.scale,
     typography.mainWeight,
     typography.subWeight,
-    lineStyles
+    lineStyles,
+    lineMarks
   )
   return g.photoRect
 }

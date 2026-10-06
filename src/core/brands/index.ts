@@ -1,9 +1,22 @@
 import type { BrandDef } from '../types'
+import type { InkMark } from '../render/canvas-utils'
 
 /**
- * 品牌数据库 —— 数据驱动匹配。
- * logo 资产来自 picseal 原项目（SVG）与 semi-utils（PNG，哈苏/宾得/荣耀）。
- * match 顺序即匹配优先级：pentax 的 make 是 "RICOH IMAGING"，必须排在 ricoh 之前。
+ * 代际罗马数字后缀 pattern 工厂（BrandGlyphMark.numerals 数据引用，避免各品牌重复手写）。
+ * 校验合法罗马数字 I–X（拒绝 IIX/IL 等非法写法），末锚匹配机型行文本；i 兼容小写机型写法。
+ */
+export const ROMAN_SUFFIX = /((?:X{0,2})(?:IX|IV|V?I{0,3}))$/
+/** "Mark II" 传统前缀变体（佳能/奥林巴斯等），整段（含 Mark 一词）锁定 */
+export const MARK_SUFFIX = /((?:mark\s*)?(?:X{0,2})(?:IX|IV|V?I{0,3}))$/i
+
+/*
+ * 品牌锁定字形映射（数据驱动，新增/调整品牌 = 只改这里的 glyph 数据）：
+ * 字体血统 → 打包/品牌字体（检索依据见 public/fonts/brands/SOURCES.md 与 docs §5.15）：
+ * - Helvetica 系（canon/olympus/nikon 代际）→ archivo 700（工业 grotesque）
+ * - Eurostile/DIN 科技感（sony）→ SST（官方企业字体）/ oswald 近似
+ * - Univers 系（fujifilm/panasonic）→ roboto 500
+ * 字标：仅接入已获取复刻字体的品牌（sony/nikon/canon/olympus）；
+ * leica/hasselblad 机身用阿拉伯数字（M11/907X），无代际罗马数字 → 不配 numerals。
  */
 export const BRANDS: BrandDef[] = [
   {
@@ -12,58 +25,85 @@ export const BRANDS: BrandDef[] = [
     name: 'Sony',
     logo: '/brands/sony.png',
     logoOnDark: '/brands/sony-dark.png',
-    modelTransforms: [{ pattern: /^ILCE-/, replace: 'α' }]
+    modelTransforms: [{ pattern: /^ILCE-/, replace: 'α' }],
+    // α 标志字形（官方 SVG 转制）+ SST 官方字体字标/数字
+    glyph: {
+      wordmark: { match: 'SONY', family: 'brand-sony', weight: 400, italic: false },
+      symbol: { char: 'α', family: 'brand-sony-alpha', modelPattern: /α/ },
+      numerals: { pattern: ROMAN_SUFFIX, family: 'brand-sony', weight: 400, spacing: 0.06 }
+    }
   },
   {
     id: 'pentax',
     match: ['pentax', 'ricoh imaging'],
     name: 'Pentax',
-    logo: '/brands/pentax.png'
+    logo: '/brands/pentax.png',
+    glyph: { numerals: { pattern: MARK_SUFFIX, family: 'archivo', weight: 700, spacing: 0.06 } } // K-1 Mark II / K-3 Mark III
   },
   {
     id: 'ricoh',
     match: ['ricoh'],
     name: 'Ricoh',
-    logo: '/brands/ricoh.png'
+    logo: '/brands/ricoh.png',
+    glyph: { numerals: { pattern: ROMAN_SUFFIX, family: 'archivo', weight: 700, spacing: 0.06 } } // GR II / GR III
   },
   {
     id: 'leica',
     match: ['leica'],
     name: 'Leica',
     logo: '/brands/leica.png'
+    // 机身型号为阿拉伯数字传统（M11 / Q3 / SL3），无代际罗马数字
   },
   {
     id: 'nikon',
     match: ['nikon'],
     name: 'Nikon',
-    logo: '/brands/nikon.png'
+    logo: '/brands/nikon.png',
+    // 机身铭牌锁定字形：NIKON 字标（Nexa Bold + 合成斜体 ≈ 官方定制字标观感）；
+    // Z 专用字形仅 Z 系机型（R-04）；代际罗马数字（Z 6II/6III）工业 grotesque
+    glyph: {
+      wordmark: { match: 'NIKON', family: 'brand-nikon', weight: 400, italic: true },
+      symbol: { char: 'Z', family: 'nikon-z-symbol', modelPattern: /\bZ/ },
+      numerals: { pattern: ROMAN_SUFFIX, family: 'archivo', weight: 700, spacing: 0.08 }
+    }
   },
   {
     id: 'canon',
     match: ['canon'],
     name: 'Canon',
-    logo: '/brands/canon.png'
+    logo: '/brands/canon.png',
+    glyph: {
+      wordmark: { match: 'CANON', family: 'brand-canon', weight: 400, italic: false },
+      numerals: { pattern: MARK_SUFFIX, family: 'archivo', weight: 700, spacing: 0.06 } // EOS R6 Mark II
+    }
   },
   {
     id: 'fujifilm',
     match: ['fujifilm', 'fujitsu'],
     name: 'Fujifilm',
     logo: '/brands/fujifilm.png',
-    modelTransforms: [{ pattern: /^X-/i, replace: 'X-' }]
+    modelTransforms: [{ pattern: /^X-/i, replace: 'X-' }],
+    glyph: { numerals: { pattern: ROMAN_SUFFIX, family: 'roboto', weight: 500, spacing: 0.06 } } // X100V / X100VI
   },
   {
     id: 'panasonic',
     match: ['panasonic'],
     name: 'Panasonic',
     logo: '/brands/panasonic.png',
-    modelTransforms: [{ pattern: /^(DMC|DC)-/, replace: 'LUMIX ' }]
+    modelTransforms: [{ pattern: /^(DMC|DC)-/, replace: 'LUMIX ' }],
+    // S5IIX 等"代际+变体"连写：取数字后整段罗马字符（GH5 II / S5II / S5IIX）
+    glyph: { numerals: { pattern: /([IVX]{2,4})$/, family: 'roboto', weight: 500, spacing: 0.06 } }
   },
   {
     id: 'olympus',
     match: ['olympus', 'om digital', 'om-digital'],
     name: 'OM SYSTEM',
     logo: '/brands/olympus.png',
-    logoOnDark: '/brands/olympus-dark.png'
+    logoOnDark: '/brands/olympus-dark.png',
+    glyph: {
+      wordmark: { match: 'OLYMPUS', family: 'brand-olympus', weight: 400, italic: false },
+      numerals: { pattern: MARK_SUFFIX, family: 'archivo', weight: 700, spacing: 0.06 } // E-M1 Mark III
+    }
   },
   {
     id: 'apple',
@@ -175,4 +215,29 @@ export function prettifyModel(brand: BrandDef | undefined, model?: string): stri
   }
   out = romanizeGeneration(brand?.id, out)
   return out.trim() || undefined
+}
+
+/**
+ * 品牌锁定字形解析（机型行专用）：按 BrandDef.glyph 数据构建渲染标记。
+ * - symbol：机型名匹配 modelPattern 时启用（如尼康仅 Z 系机型、索尼 α 标志）；
+ *   color 为字符专用色（模板 typography.markColor，nikon-z 模板红 Z 语义，缺省由调用方回退行色）。
+ * - wordmark / numerals：品牌字标段与代际罗马数字段，锁定样式，颜色恒随行色。
+ */
+export function resolveBrandMark(
+  brand: BrandDef | undefined,
+  modelPretty: string,
+  markColor?: string
+): InkMark | undefined {
+  const glyph = brand?.glyph
+  if (!glyph) return undefined
+  const symbolActive =
+    !!glyph.symbol && (!glyph.symbol.modelPattern || glyph.symbol.modelPattern.test(modelPretty))
+  return {
+    symbol:
+      symbolActive && glyph.symbol
+        ? { char: glyph.symbol.char, family: glyph.symbol.family, color: markColor }
+        : undefined,
+    wordmark: glyph.wordmark ? { ...glyph.wordmark } : undefined,
+    numerals: glyph.numerals ? { ...glyph.numerals } : undefined
+  }
 }

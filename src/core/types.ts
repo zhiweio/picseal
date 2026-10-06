@@ -1,3 +1,5 @@
+import type { FontFamilyId } from './fonts/registry'
+
 /** 归一化后的照片元数据 —— 由 EXIF 读取器产出，水印引擎消费 */
 export interface PhotoMeta {
   make?: string
@@ -22,6 +24,25 @@ export interface PhotoMeta {
 
 export const EMPTY_META: PhotoMeta = Object.freeze({})
 
+/**
+ * 品牌锁定字形（仅作用于渲染「机型」信息的槽位文本）——数据驱动，
+ * 新增品牌（索尼等）只需扩充 BRANDS 的 glyph 数据，渲染层零改动。
+ * 锁定语义：仅字号与颜色可变，family/weight/italic 任何情况下不随用户覆写。
+ */
+export interface BrandGlyphMark {
+  /** 品牌字标子串（如 NIKON）：大小写不敏感匹配、保留原文，以锁定样式渲染，颜色恒随行色 */
+  wordmark?: { match: string; family: FontFamilyId; weight: number; italic: boolean }
+  /** 符号字符切换（如尼康 Z 专用字形、索尼 α 标志）：仅当机型名匹配 modelPattern 时启用（缺省恒启用） */
+  symbol?: { char: string; family: FontFamilyId; modelPattern?: RegExp }
+  /**
+   * 代际罗马数字段（机型名末尾的 II/III/IV/V/VI 等，如 Mark II / Z 6III / X100VI）：
+   * pattern 在机型行文本上取匹配处（应末锚 $，见 brands 的 ROMAN_SUFFIX/MARK_SUFFIX 工厂）
+   * 以锁定样式渲染；spacing 为数字段前额外字距（em，机身铭牌的 track-out 高级感）。
+   * 各品牌机身字体均为定制（Helvetica/Univers/Eurostile 系），打包/品牌字体映射见 brands/index.ts。
+   */
+  numerals?: { pattern: RegExp; family: FontFamilyId; weight: number; italic?: boolean; spacing?: number }
+}
+
 /** 品牌定义：数据驱动匹配，替代旧版硬编码 switch */
 export interface BrandDef {
   id: string
@@ -34,6 +55,8 @@ export interface BrandDef {
   logoOnDark?: string
   /** 机型名美化规则 */
   modelTransforms?: Array<{ pattern: RegExp; replace: string }>
+  /** 品牌锁定字形（机型行专用，见 BrandGlyphMark） */
+  glyph?: BrandGlyphMark
 }
 
 /** 槽位字体覆写：全部可选 = 跟随模板全局（typography.font/scale + 所在行的默认字重/颜色） */

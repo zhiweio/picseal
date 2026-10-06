@@ -1,6 +1,13 @@
 import type { BannerStyle, WatermarkTemplate } from '../types'
 import type { FontFamilyId } from '../fonts/registry'
-import { drawImageSmoothed, drawInkText, getInkBlock, measureInk, type Ctx2D } from './canvas-utils'
+import {
+  drawImageSmoothed,
+  drawInkText,
+  getInkBlock,
+  measureInk,
+  type Ctx2D,
+  type InkMark
+} from './canvas-utils'
 import type { ResolvedRowStyle } from './slot-style'
 
 /* ───────────────────────── 横幅排印系统常量（semi-utils 官方值） ─────────────────────────
@@ -54,8 +61,8 @@ export interface BannerSpec {
   logo: ImageBitmap | null
   /** 卡片装裱内嵌时背景透明 */
   transparentBg?: boolean
-  /** 尼康 Z 专用字形：机型行中的 Z 用符号字体渲染（color 缺省 = 正文色，尼康官方风） */
-  mark?: { color?: string; family: FontFamilyId }
+  /** 四象限槽位的品牌锁定字形（仅机型槽位有值；锁定段样式任何情况下不随行覆写） */
+  marks?: BannerSlotMarks
   /** 四象限槽位解析后的样式（高级字体覆写；缺省 = 模板全局，见 bannerRowStyle） */
   slotStyles?: BannerSlotStyles
 }
@@ -98,9 +105,14 @@ export interface MeasureInput {
   /** 该行的家族/斜体（槽位覆写后的解析值） */
   family: FontFamilyId
   italic: boolean
+  /** 该行的品牌锁定字形（仅机型槽位由调用方注入，其余槽位 undefined = 如常渲染） */
+  mark?: InkMark
 }
 
 export type MeasureFn = (input: MeasureInput) => number
+
+/** 四象限槽位的品牌锁定字形表（仅机型槽位有值） */
+export type BannerSlotMarks = Partial<Record<BannerSlotPos, InkMark>>
 
 /**
  * 槽位样式缺省解析（spec.slotStyles 缺省 = 模板全局）：测量、落位、绘制三处共用
@@ -155,7 +167,7 @@ export function computeBannerLayout(
   lines: BannerLines,
   spec: Pick<
     BannerSpec,
-    'banner' | 'family' | 'mainWeight' | 'subWeight' | 'logo' | 'transparentBg' | 'slotStyles'
+    'banner' | 'family' | 'mainWeight' | 'subWeight' | 'logo' | 'transparentBg' | 'slotStyles' | 'marks'
   >,
   measure: MeasureFn,
   /** 墨迹缩放乘数（typography.scale<1 时缩小文字；横幅不变） */
@@ -236,9 +248,17 @@ export function computeBannerLayout(
   const available = Math.max(0, x1 - leftX - rightStackW - gapLR)
 
   // ── 需求测量与三级退化（各行墨迹高独立：主/副行比 × 槽位字号乘数） ──
+  const rowMarkOf = (pos: BannerSlotPos) => spec.marks?.[pos]
   const measureRow = (pos: BannerSlotPos, text: string, mainH: number) => {
     const st = bannerRowStyle(spec, pos)
-    return measure({ text, weight: st.weight, family: st.family, italic: st.italic, slotH: rowH(pos, mainH) })
+    return measure({
+      text,
+      weight: st.weight,
+      family: st.family,
+      italic: st.italic,
+      slotH: rowH(pos, mainH),
+      mark: rowMarkOf(pos)
+    })
   }
   const measureAll = (mainH: number, src: BannerLines = lines) => ({
     lt: src.leftTop ? measureRow('leftTop', src.leftTop, mainH) : 0,
@@ -395,7 +415,7 @@ export function solveBannerHeight(
   family: FontFamilyId,
   mainWeight: number,
   subWeight: number,
-  mark?: { color?: string; family: FontFamilyId },
+  marks?: BannerSlotMarks,
   logoAspect = 1,
   slotStyles?: BannerSlotStyles
 ): number {
@@ -417,10 +437,11 @@ export function solveBannerHeight(
         subWeight,
         // 与渲染同宽高比的合成 logo：预算必须包含 logo 占位（否则 solve 偏乐观导致截断）
         logo: logoAspect > 0 ? ({ width: logoAspect, height: 1 } as unknown as ImageBitmap) : null,
-        slotStyles
+        slotStyles,
+        marks
       },
       (input) => {
-        const block = getInkBlock(input.family, input.weight, input.text, template.banner.textColor, mark, input.italic)
+        const block = getInkBlock(input.family, input.weight, input.text, template.banner.textColor, input.mark, input.italic)
         if (block) return block.naturalW * (input.slotH / block.naturalH)
         return input.text.length * input.slotH * 0.55
       },
@@ -459,8 +480,8 @@ export function drawBannerStrip(
     ctx.fillRect(strip.x, strip.y, strip.w, strip.h)
   }
 
-  const measure = ({ text, weight, family, italic, slotH }: MeasureInput) => {
-    const block = getInkBlock(family, weight, text, banner.textColor, spec.mark, italic)
+  const measure = ({ text, weight, family, italic, slotH, mark }: MeasureInput) => {
+    const block = getInkBlock(family, weight, text, banner.textColor, mark, italic)
     if (block) return block.naturalW * (slotH / block.naturalH)
     return measureInk(ctx, text, family, weight, slotH, undefined, italic).width
   }
@@ -469,10 +490,16 @@ export function drawBannerStrip(
   const drawRow = (row: BannerRowBox, pos: BannerSlotPos) => {
     if (!row.text) return
     const st = bannerRowStyle(spec, pos)
-    // 尼康 Z 符号字形（spec.mark）：行色被显式覆写时跟随行色（颜色可改），
-    // 字体/字重/斜体在 getInkBlock 内永远锁定为符号字体自身——任何情况下官方字形
+    // 品牌锁定字形（仅机型槽位有 mark）：行色被显式覆写时符号字符跟随行色（颜色可改），
+    // 字标颜色恒随行色；家族/字重/斜体在 getInkBlock 内永远锁定——任何情况下官方字形
+    const baseMark = spec.marks?.[pos]
     const mark =
-      spec.mark && st.colorOverridden ? { color: st.color, family: spec.mark.family } : spec.mark
+      baseMark && st.colorOverridden
+        ? {
+            ...baseMark,
+            symbol: baseMark.symbol ? { ...baseMark.symbol, color: st.color } : undefined
+          }
+        : baseMark
     const block = getInkBlock(st.family, st.weight, row.text, st.color, mark, st.italic)
     if (block) {
       const w = row.w > 0 ? row.w : block.naturalW * (row.h / block.naturalH)

@@ -127,18 +127,86 @@ describe('applyCaps（capsOnly 单位保护，BAN-011）', () => {
   })
 })
 
-describe('markSegments（尼康 Z 专用字形，R-04/R-12）', () => {
-  it('高亮字符段携带符号字体 family', () => {
-    const segs = markSegments('NIKON Z 8', '#ffffff', '#ff0000', 'Z', 'nikon-z-symbol')
+describe('markSegments（尼康品牌字形：Z 符号 + NIKON 字标）', () => {
+  it('符号字符段携带符号字体 family 与专用色', () => {
+    const segs = markSegments('NIKON Z 8', '#ffffff', {
+      symbol: { char: 'Z', family: 'nikon-z-symbol', color: '#ff0000' }
+    })
     expect(segs).toHaveLength(3)
     expect(segs[0]).toEqual({ text: 'NIKON ', color: '#ffffff' })
     expect(segs[1]).toEqual({ text: 'Z', color: '#ff0000', family: 'nikon-z-symbol' })
     expect(segs[2]).toEqual({ text: ' 8', color: '#ffffff' })
   })
-  it('无符号字体时仅换色（兼容旧行为）', () => {
-    const segs = markSegments('Z8', '#fff', '#f00')
-    expect(segs[0]).toEqual({ text: 'Z', color: '#f00' })
-    expect(segs[0]!.family).toBeUndefined()
+  it('无 symbol（非 Z 系门控）时 Z 保持正文呈现', () => {
+    const segs = markSegments('Z8', '#fff', {})
+    expect(segs).toEqual([{ text: 'Z8', color: '#fff' }])
+  })
+  it('符号字符数据驱动：任意 char 皆可（为其他品牌预留）', () => {
+    const segs = markSegments('α7R V', '#fff', { symbol: { char: 'α', family: 'archivo' } })
+    expect(segs[0]).toEqual({ text: 'α', color: '#fff', family: 'archivo' })
+    expect(segs[1]).toEqual({ text: '7R V', color: '#fff' })
+  })
+  it('NIKON 字标段：锁定 family/weight/italic，颜色跟随行色', () => {
+    const segs = markSegments('NIKON Z 8', '#111111', {
+      symbol: { char: 'Z', family: 'nikon-z-symbol', color: '#ff0000' },
+      wordmark: { match: 'NIKON', family: 'archivo', weight: 800, italic: true }
+    })
+    expect(segs).toHaveLength(4)
+    expect(segs[0]).toEqual({ text: 'NIKON', color: '#111111', family: 'archivo', weight: 800, italic: true })
+    expect(segs[1]).toEqual({ text: ' ', color: '#111111' })
+    expect(segs[2]).toEqual({ text: 'Z', color: '#ff0000', family: 'nikon-z-symbol' })
+    expect(segs[3]).toEqual({ text: ' 8', color: '#111111' })
+  })
+  it('字标匹配大小写不敏感且保留原文', () => {
+    const segs = markSegments('Nikon D850', '#000', {
+      wordmark: { match: 'NIKON', family: 'archivo', weight: 800, italic: true }
+    })
+    expect(segs[0]).toMatchObject({ text: 'Nikon', weight: 800, italic: true })
+    expect(segs[1]).toEqual({ text: ' D850', color: '#000' })
+  })
+  it('无字标无符号时退化为单段正文', () => {
+    expect(markSegments('NIKON D850', '#000', {})).toEqual([{ text: 'NIKON D850', color: '#000' }])
+  })
+  it('NIKKOR 不含 NIKON 字标，不误匹配', () => {
+    const segs = markSegments('NIKKOR Z 50mm', '#000', {
+      symbol: { char: 'Z', family: 'nikon-z-symbol' },
+      wordmark: { match: 'NIKON', family: 'archivo', weight: 800, italic: true }
+    })
+    // 'NIKKOR' 前缀 NIK 不满足 NIKON；Z 切换符号字体
+    expect(segs[0]).toEqual({ text: 'NIKKOR ', color: '#000' })
+    expect(segs[1]).toEqual({ text: 'Z', color: '#000', family: 'nikon-z-symbol' })
+  })
+  it('代际数字段：三类锁定段共存（字标 + 符号 + 数字含 gapBefore）', () => {
+    const segs = markSegments('NIKON Z 6III', '#111', {
+      symbol: { char: 'Z', family: 'nikon-z-symbol', color: '#ff0000' },
+      wordmark: { match: 'NIKON', family: 'brand-nikon', weight: 400, italic: true },
+      numerals: { pattern: /((?:X{0,2})(?:IX|IV|V?I{0,3}))$/, family: 'archivo', weight: 700, spacing: 0.08 }
+    })
+    expect(segs).toHaveLength(5)
+    expect(segs[0]).toEqual({ text: 'NIKON', color: '#111', family: 'brand-nikon', weight: 400, italic: true })
+    expect(segs[1]).toEqual({ text: ' ', color: '#111' })
+    expect(segs[2]).toEqual({ text: 'Z', color: '#ff0000', family: 'nikon-z-symbol' })
+    expect(segs[3]).toEqual({ text: ' 6', color: '#111' })
+    expect(segs[4]).toEqual({
+      text: 'III',
+      color: '#111',
+      family: 'archivo',
+      weight: 700,
+      italic: false,
+      gapBefore: 0.08
+    })
+  })
+  it('代际数字：无后缀机型不产生数字段', () => {
+    const segs = markSegments('NIKON D850', '#000', {
+      numerals: { pattern: /((?:X{0,2})(?:IX|IV|V?I{0,3}))$/, family: 'archivo', weight: 700 }
+    })
+    expect(segs).toEqual([{ text: 'NIKON D850', color: '#000' }])
+  })
+  it('代际数字：非法罗马写法（IIL）不匹配', () => {
+    const segs = markSegments('CAM BODY IIL', '#000', {
+      numerals: { pattern: /((?:X{0,2})(?:IX|IV|V?I{0,3}))$/, family: 'archivo', weight: 700 }
+    })
+    expect(segs).toEqual([{ text: 'CAM BODY IIL', color: '#000' }])
   })
 })
 
@@ -183,6 +251,88 @@ describe('尼康 Z 符号字形锁定（字号/颜色可变；字体/字重/斜�
     expect(fills[2]!.font).toMatch(/^italic 300 \d+(\.\d+)?px "Picseal Roboto", sans-serif$/)
     // Z 段：恒为符号字体自身 mainWeight(400)、非斜体——任何行级覆写都不生效
     expect(fills[1]!.font).toMatch(/^400 \d+(\.\d+)?px "Picseal NikonZSymbol", sans-serif$/)
+  })
+
+  it('drawInkSegments：品牌字标段以显式锁定样式渲染，行级覆写不影响', async () => {
+    const { drawInkSegments } = await import('./canvas-utils')
+    const fills: Array<{ text: string; font: string }> = []
+    const ctx = {
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      fillStyle: '',
+      measureText: (text: string) => ({
+        width: text.length * 100,
+        fontBoundingBoxAscent: 190,
+        fontBoundingBoxDescent: 50,
+        actualBoundingBoxAscent: 145,
+        actualBoundingBoxDescent: 5
+      }),
+      fillText: function (this: { font: string }, text: string) {
+        fills.push({ text, font: this.font })
+      }
+    } as unknown as Ctx2D
+
+    // 行样式：普惠体 300 非斜体；NIKON 字标段锁定 Archivo 800 斜体
+    drawInkSegments(
+      ctx,
+      [
+        { text: 'NIKON', color: '#000000', family: 'archivo', weight: 800, italic: true },
+        { text: ' D850', color: '#000000' }
+      ],
+      0,
+      100,
+      72,
+      { family: 'puhuiti', weight: 300, color: '#000000' },
+      'left'
+    )
+    expect(fills).toHaveLength(2)
+    // 字标段：显式锁定的家族/字重/斜体
+    expect(fills[0]!.font).toMatch(/^italic 800 \d+(\.\d+)?px "Picseal Archivo", sans-serif$/)
+    // 正文段：行样式
+    expect(fills[1]!.font).toMatch(/^300 \d+(\.\d+)?px "Picseal PuHuiTi", sans-serif$/)
+  })
+
+  it('drawInkSegments：数字段前置字距（gap）推进后续落笔位置', async () => {
+    const { drawInkSegments } = await import('./canvas-utils')
+    const draws: Array<{ text: string; x: number; font: string }> = []
+    const ctx = {
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      fillStyle: '',
+      measureText: (text: string) => ({
+        width: text.length * 100,
+        fontBoundingBoxAscent: 190,
+        fontBoundingBoxDescent: 50,
+        actualBoundingBoxAscent: 145,
+        actualBoundingBoxDescent: 5
+      }),
+      fillText: function (this: { font: string }, text: string, x: number) {
+        draws.push({ text, x, font: this.font })
+      }
+    } as unknown as Ctx2D
+
+    drawInkSegments(
+      ctx,
+      [
+        { text: 'Z 6', color: '#000' },
+        { text: 'III', color: '#000', family: 'archivo', weight: 700, italic: false, gapBefore: 0.1 }
+      ],
+      0,
+      100,
+      100,
+      { family: 'roboto', weight: 400, color: '#000' },
+      'left'
+    )
+    expect(draws).toHaveLength(2)
+    // 段 0：正文，x = 0
+    expect(draws[0]!.text).toBe('Z 6')
+    expect(draws[0]!.x).toBe(0)
+    // 段 1：数字段，落笔 x = 前段宽(300) + gap(0.1 × 100) = 310，锁定 Archivo 700
+    expect(draws[1]!.text).toBe('III')
+    expect(draws[1]!.x).toBe(310)
+    expect(draws[1]!.font).toMatch(/^700 \d+(\.\d+)?px "Picseal Archivo", sans-serif$/)
   })
 
   it('drawInkText 整行直绘时斜体随 style（非混排路径不受锁定影响）', async () => {

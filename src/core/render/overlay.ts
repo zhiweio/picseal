@@ -1,5 +1,5 @@
 import type { CenterStyle, CornerStyle } from '../types'
-import { MARK_SYMBOL_FONT, type FontFamilyId } from '../fonts/registry'
+import type { FontFamilyId } from '../fonts/registry'
 import {
   drawImageSmoothed,
   drawInkSegments,
@@ -9,7 +9,8 @@ import {
   markSegments,
   roundedRectPath,
   sampleLuminance,
-  type Ctx2D
+  type Ctx2D,
+  type InkMark
 } from './canvas-utils'
 import type { ResolvedRowStyle } from './slot-style'
 
@@ -31,7 +32,9 @@ export function drawCorner(
   mainWeight: number,
   subWeight: number,
   /** 逐行解析样式（高级字体覆写；缺省项 = 原行为：行 0 主字重主色，其余副） */
-  lineStyles?: ResolvedRowStyle[]
+  lineStyles?: ResolvedRowStyle[],
+  /** 逐行品牌锁定字形（仅内容含 $model 的行由调用方注入） */
+  lineMarks?: Array<InkMark | undefined>
 ): void {
   if (lines.length === 0) return
   const size = height * corner.sizeRatio * typographyScale
@@ -68,8 +71,15 @@ export function drawCorner(
   }
 
   // 逐行走 InkBlock 墨迹位图（超采样+水平裁切+渐进半缩），fallback 直绘
-  const drawInkRow = (text: string, x: number, rowTop: number, inkH: number, st: ResolvedRowStyle) => {
-    const block = getInkBlock(st.family, st.weight, text, st.color, undefined, st.italic)
+  const drawInkRow = (
+    text: string,
+    x: number,
+    rowTop: number,
+    inkH: number,
+    st: ResolvedRowStyle,
+    mark?: InkMark
+  ) => {
+    const block = getInkBlock(st.family, st.weight, text, st.color, mark, st.italic)
     if (block) {
       const w = block.naturalW * (inkH / block.naturalH)
       const bx = align === 'right' ? x - w : x
@@ -97,7 +107,7 @@ export function drawCorner(
 
   lines.forEach((text, i) => {
     const st = rowStyleOf(i)
-    drawInkRow(text, anchorX, rowTops[i]!, size * st.scale, st)
+    drawInkRow(text, anchorX, rowTops[i]!, size * st.scale, st, lineMarks?.[i])
   })
 
   ctx.shadowColor = 'transparent'
@@ -116,7 +126,7 @@ export function drawCenterLogo(
   family: FontFamilyId,
   typographyScale: number,
   subWeight: number,
-  mark?: { color?: string; family: FontFamilyId }
+  mark?: InkMark
 ): void {
   if (center.scrim) {
     const scrimH = height * 0.3
@@ -139,10 +149,10 @@ export function drawCenterLogo(
     const capY = cy + height * 0.03
     const luma = sampleLuminance(ctx, width * 0.3, capY, width * 0.4, size * 1.4)
     const captionColor = ensureContrastColor(center.captionColor, luma)
-    if (mark && caption.includes('Z')) {
+    if (mark && (caption.includes('Z') || mark.wordmark)) {
       drawInkSegments(
         ctx,
-        markSegments(caption, captionColor, mark.color ?? captionColor, 'Z', mark.family),
+        markSegments(caption, captionColor, mark),
         width / 2,
         capY,
         size,
@@ -174,7 +184,10 @@ export function drawCenterStack(
     subWeight: number
     modelH: number
     paramsH: number
-    mark?: { color?: string; family: FontFamilyId }
+    /** 机型行的品牌锁定字形（仅机型槽位由调用方注入；锁定段样式不随行覆写） */
+    modelMark?: InkMark
+    /** 参数行的品牌锁定字形（内容含 $model 时注入） */
+    paramsMark?: InkMark
     modelColor?: string
     paramsColor?: string
     /** 槽位解析样式（高级字体覆写；缺省项 = 原行为） */
@@ -191,7 +204,7 @@ export function drawCenterStack(
     inkH: number,
     weight: number,
     color: string,
-    markOn: boolean,
+    mark: InkMark | undefined,
     st?: ResolvedRowStyle
   ) => {
     if (!text) return
@@ -206,25 +219,23 @@ export function drawCenterStack(
     }
     // 槽位字号乘数：行墨迹高放大/缩小，锚点 y 不变（布局比例仍按官方 3% 图高）
     const lineH = inkH * style.scale
-    // 尼康 Z 符号字形：行色被显式覆写时跟随行色（颜色可改），
-    // 字体/字重/斜体在 getInkBlock/drawInkSegments 内永远锁定为符号字体自身
-    const mark =
-      markOn && opts.mark
-        ? style.colorOverridden
-          ? { color: style.color, family: opts.mark.family }
-          : opts.mark
-        : undefined
-    const block = getInkBlock(style.family, style.weight, text, style.color, mark, style.italic)
+    // 品牌锁定字形（仅机型槽位传入）：行色被显式覆写时符号字符跟随行色（颜色可改），
+    // 字标颜色恒随行色；家族/字重/斜体在 getInkBlock/drawInkSegments 内永远锁定
+    const rowMark =
+      mark && style.colorOverridden
+        ? { ...mark, symbol: mark.symbol ? { ...mark.symbol, color: style.color } : undefined }
+        : mark
+    const block = getInkBlock(style.family, style.weight, text, style.color, rowMark, style.italic)
     if (block) {
       const w = block.naturalW * (lineH / block.naturalH)
       drawImageSmoothed(ctx, block.canvas, centerX - w / 2, y, w, lineH)
       return
     }
     const inkStyle = { family: style.family, weight: style.weight, color: style.color, italic: style.italic }
-    if (mark) {
+    if (rowMark) {
       drawInkSegments(
         ctx,
-        markSegments(text, style.color, mark.color ?? style.color, 'Z', mark.family),
+        markSegments(text, style.color, rowMark),
         centerX,
         y,
         lineH,
@@ -236,8 +247,8 @@ export function drawCenterStack(
     }
   }
 
-  drawLine(model, modelY, opts.modelH, opts.mainWeight, modelColor, true, opts.modelStyle)
-  drawLine(params, paramsY, opts.paramsH, opts.subWeight, paramsColor, true, opts.paramsStyle)
+  drawLine(model, modelY, opts.modelH, opts.mainWeight, modelColor, opts.modelMark, opts.modelStyle)
+  drawLine(params, paramsY, opts.paramsH, opts.subWeight, paramsColor, opts.paramsMark, opts.paramsStyle)
 }
 
 /** 装裱底板（白边/圆角/投影） */

@@ -10,6 +10,7 @@ import {
   type MeasureFn
 } from './banner'
 import type { BannerStyle, WatermarkTemplate } from '../types'
+import type { InkMark } from './canvas-utils'
 
 const slot = (content: string) => ({ enabled: true, content })
 
@@ -356,5 +357,25 @@ describe('槽位样式（高级字体覆写）', () => {
       scale: 1,
       colorOverridden: false
     })
+  })
+
+  it('槽位门控：marks 仅含 leftTop（机型槽位）时，测量只对左上行携带 mark', () => {
+    const brandMark: InkMark = {
+      symbol: { char: 'Z', family: 'nikon-z-symbol', color: '#ff0000' },
+      wordmark: { match: 'NIKON', family: 'archivo', weight: 800, italic: true }
+    }
+    const seen: Array<{ text: string; mark: unknown }> = []
+    const spy: MeasureFn = (input) => {
+      seen.push({ text: input.text, mark: input.mark })
+      return measure(input)
+    }
+    computeBannerLayout(strip, lines, { ...spec(), marks: { leftTop: brandMark } }, spy)
+    const lt = seen.find((s) => s.text === lines.leftTop)
+    const lb = seen.find((s) => s.text === lines.leftBottom)
+    const rt = seen.find((s) => s.text === lines.rightTop)
+    // 机型槽位携带 mark；其余槽位（镜头/参数/时间）如常渲染——NIKKOR Z 的 Z 不切换符号字形
+    expect(lt?.mark).toEqual(brandMark)
+    expect(lb?.mark).toBeUndefined()
+    expect(rt?.mark).toBeUndefined()
   })
 })

@@ -202,7 +202,7 @@ export function drawInkText(
  */
 export function drawInkSegments(
   ctx: Ctx2D,
-  segments: Array<{ text: string; color: string; family?: FontFamilyId }>,
+  segments: InkSegment[],
   x: number,
   y: number,
   targetHeight: number,
@@ -210,12 +210,13 @@ export function drawInkSegments(
   align: 'left' | 'right' | 'center' = 'left',
   anchor: 'top' | 'baseline' = 'top'
 ): number {
-  // 异字体段（尼康 Z 符号字形）锁定该字体自身主字重、非斜体——行级字重/斜体覆写不得污染品牌字形
+  // 段样式优先级：品牌锁定段显式样式（NIKON 字标）> 异字体段锁定（Z 符号恒为自身
+  // 主字重非斜体）> 行样式——行级字体覆写任何情况下不得污染品牌字形
   const metrics = segments.map((seg) => {
     const fam = seg.family ?? style.family
     const foreign = !!seg.family && seg.family !== style.family
-    const segWeight = foreign ? getFontFamily(fam).mainWeight : style.weight
-    const segItalic = foreign ? false : !!style.italic
+    const segWeight = seg.weight ?? (foreign ? getFontFamily(fam).mainWeight : style.weight)
+    const segItalic = seg.italic ?? (foreign ? false : !!style.italic)
     const m = measureInk(ctx, seg.text, fam, segWeight, targetHeight, style.fontPx, segItalic)
     if (!foreign) return { w: m.width, px: style.fontPx, weight: segWeight, italic: segItalic }
     const main = measureInk(ctx, 'M', style.family, style.weight, targetHeight, style.fontPx, style.italic)
@@ -225,10 +226,12 @@ export function drawInkSegments(
   const total = metrics.reduce((a, m) => a + m.w, 0)
   let cursor = align === 'left' ? x : align === 'right' ? x - total : x - total / 2
   segments.forEach((seg, i) => {
+    // 段前字距（代际数字 track-out）：落笔位置前移，推进量计入段宽（与墨迹位图路径同口径）
+    const gx = (seg.gapBefore ?? 0) * targetHeight
     drawInkText(
       ctx,
       seg.text,
-      cursor,
+      cursor + gx,
       y,
       targetHeight,
       {
@@ -242,27 +245,95 @@ export function drawInkSegments(
       'left',
       anchor
     )
-    cursor += metrics[i]!.w
+    cursor += metrics[i]!.w + gx
   })
   return total
 }
 
-/** 把文本中的高亮字符（默认 'Z'）换色/换字体为段 —— 尼康 Z 款 */
-export function markSegments(
-  text: string,
-  baseColor: string,
-  markColor: string,
-  markChar = 'Z',
-  markFamily?: FontFamilyId
-): Array<{ text: string; color: string; family?: FontFamilyId }> {
-  const segments: Array<{ text: string; color: string; family?: FontFamilyId }> = []
-  for (const ch of text) {
+/** 行内品牌字形标记（锁定段）：段样式不随行级字体覆写变化，仅随行字号与行色呈现 */
+export interface InkMark {
+  /** 符号字符切换（尼康 Z 专用字形、索尼 α 标志）：该字符以符号字体渲染；color 为字符专用色（缺省 = 行色） */
+  symbol?: { char: string; family: FontFamilyId; color?: string }
+  /** 品牌字标子串（NIKON 机身铭牌同款）：以锁定 family/weight/italic 渲染，颜色恒随行色 */
+  wordmark?: { match: string; family: FontFamilyId; weight: number; italic: boolean; color?: string }
+  /** 代际罗马数字段（Z 6III 的 III / Mark II）：pattern 末锚匹配，锁定样式渲染；spacing = 段前字距（em） */
+  numerals?: { pattern: RegExp; family: FontFamilyId; weight: number; italic?: boolean; spacing?: number }
+}
+
+export interface InkSegment {
+  text: string
+  color: string
+  /** 异字体段（尼康 Z 符号字形），按主字体大写字高归一且锁定该字体自身主字重非斜体 */
+  family?: FontFamilyId
+  /** 品牌锁定段的显式样式（NIKON 字标/代际数字）——优先于行样式与异字体锁定 */
+  weight?: number
+  italic?: boolean
+  /** 段前额外字距（em，代际数字的 track-out；绘制位置前移，推进量计入段宽） */
+  gapBefore?: number
+}
+
+/** 把文本切分为正文/标记段：品牌字标子串（大小写不敏感、保留原文）+ 代际数字段 + 符号字符 */
+export function markSegments(text: string, baseColor: string, mark: InkMark): InkSegment[] {
+  const segments: InkSegment[] = []
+  const push = (seg: InkSegment) => {
     const last = segments[segments.length - 1]
-    const isMark = ch === markChar
-    const color = isMark ? markColor : baseColor
-    const family = isMark ? markFamily : undefined
-    if (last && last.color === color && last.family === family) last.text += ch
-    else segments.push({ text: ch, color, family })
+    if (
+      last &&
+      last.color === seg.color &&
+      last.family === seg.family &&
+      last.weight === seg.weight &&
+      last.italic === seg.italic &&
+      last.gapBefore === seg.gapBefore
+    ) {
+      last.text += seg.text
+      return
+    }
+    segments.push(seg)
+  }
+  const wm = mark.wordmark
+  const wmLen = wm ? wm.match.length : 0
+  const wmUpper = wm ? wm.match.toUpperCase() : ''
+  const sym = mark.symbol
+  const num = mark.numerals
+  // 数字段区间：pattern（应末锚 $）在整行上取一处匹配，扫描时整段切出
+  let numStart = -1
+  let numEnd = -1
+  if (num) {
+    const m = num.pattern.exec(text)
+    if (m && m[0]) {
+      numStart = m.index
+      numEnd = numStart + m[0].length
+    }
+  }
+  let i = 0
+  while (i < text.length) {
+    if (num && numStart >= 0 && i === numStart) {
+      push({
+        text: text.slice(numStart, numEnd),
+        color: baseColor,
+        family: num.family,
+        weight: num.weight,
+        italic: num.italic ?? false,
+        gapBefore: num.spacing
+      })
+      i = numEnd
+      continue
+    }
+    if (wm && wmLen > 0 && text.slice(i, i + wmLen).toUpperCase() === wmUpper) {
+      push({
+        text: text.slice(i, i + wmLen),
+        color: wm.color ?? baseColor,
+        family: wm.family,
+        weight: wm.weight,
+        italic: wm.italic
+      })
+      i += wmLen
+      continue
+    }
+    const ch = text[i]!
+    if (sym && ch === sym.char) push({ text: ch, color: sym.color ?? baseColor, family: sym.family })
+    else push({ text: ch, color: baseColor })
+    i += 1
   }
   return segments
 }
@@ -359,13 +430,6 @@ export function ensureContrastColor(baseColor: string, bgLuma: number | null): s
  * 与 semi-utils 完全同构；浏览器光栅器的 hinting 差异被超采样消除。
  */
 
-export interface InkSegment {
-  text: string
-  color: string
-  /** 异字体段（尼康 Z 符号字形），自动按主字体大写字高归一 */
-  family?: FontFamilyId
-}
-
 export interface InkBlock {
   /** 裁切到墨迹边界的位图（超采样分辨率） */
   canvas: OffscreenCanvas
@@ -391,16 +455,31 @@ function inkScratchCtx(): OffscreenCanvasRenderingContext2D | null {
   }
 }
 
+/** 品牌标记的缓存键分量（symbol/wordmark 影响字形必须入键） */
+function markCacheKey(mark?: InkMark): string {
+  if (!mark) return ''
+  const sym = mark.symbol
+  const wm = mark.wordmark
+  const num = mark.numerals
+  return `${sym ? `sym:${sym.char}/${sym.family}/${sym.color ?? ''}` : ''}|${
+    wm ? `wm:${wm.match}/${wm.family}/${wm.weight}/${wm.italic ? 'i' : ''}/${wm.color ?? ''}` : ''
+  }|${
+    num
+      ? `nm:${num.pattern.source}/${num.family}/${num.weight}/${num.italic ? 'i' : ''}/${num.spacing ?? 0}`
+      : ''
+  }`
+}
+
 /** 构建（带缓存）一行文字的墨迹位图；环境不支持时返回 null（调用方走 drawInkText 回退） */
 export function getInkBlock(
   family: FontFamilyId,
   weight: number,
   text: string,
   color: string,
-  mark?: { color?: string; family: FontFamilyId },
+  mark?: InkMark,
   italic = false
 ): InkBlock | null {
-  const key = `${family}|${weight}|${color}|${mark?.color ?? ''}|${mark?.family ?? ''}|${italic ? 'i' : ''}|${text}`
+  const key = `${family}|${weight}|${color}|${markCacheKey(mark)}|${italic ? 'i' : ''}|${text}`
   const hit = inkBlockCache.get(key)
   if (hit !== undefined) return hit
 
@@ -418,7 +497,7 @@ function buildInkBlock(
   weight: number,
   text: string,
   color: string,
-  mark?: { color?: string; family: FontFamilyId },
+  mark?: InkMark,
   italic = false
 ): InkBlock | null {
   try {
@@ -430,17 +509,22 @@ function buildInkBlock(
 
     // 1. 超采样测量与绘制（大字号消除 hinting 差异）
     const px = 100 * INK_SS
-    const segments: InkSegment[] = mark && normalized.includes('Z')
-      ? markSegments(normalized, color, mark.color ?? color, 'Z', mark.family)
+    const segments: InkSegment[] = mark
+      ? markSegments(normalized, color, mark)
       : [{ text: normalized, color }]
 
+    // 段样式优先级：品牌锁定段显式样式（NIKON 字标）> 异字体段锁定（Z 符号恒为自身
+    // 主字重非斜体——行级字重/斜体覆写不得污染品牌字形）> 行样式
+    const segStyleOf = (seg: InkSegment): { weight: number; italic: boolean } => {
+      if (seg.weight !== undefined || seg.italic !== undefined) {
+        return { weight: seg.weight ?? weight, italic: seg.italic ?? italic }
+      }
+      if (seg.family && seg.family !== family) {
+        return { weight: getFontFamily(seg.family).mainWeight, italic: false }
+      }
+      return { weight, italic }
+    }
     // 逐段字号：异字体段按主字体大写字高归一（符号 Z 字形度量与正文不同）
-    // 异字体段（尼康 Z 符号字形）永远以该字体自身主字重、非斜体呈现——
-    // 行级字重/斜体覆写不得污染品牌字形（Z 符号仅字号与颜色可变）
-    const segStyleOf = (seg: InkSegment): { weight: number; italic: boolean } =>
-      seg.family && seg.family !== family
-        ? { weight: getFontFamily(seg.family).mainWeight, italic: false }
-        : { weight, italic }
     scratch.font = fontShorthand(def, weight, px, italic)
     const capProbe = scratch.measureText('M')
     const capH = capProbe.actualBoundingBoxAscent > 0 ? capProbe.actualBoundingBoxAscent : px * 0.72
@@ -456,7 +540,10 @@ function buildInkBlock(
       }
       return w
     })
-    const totalW = widths.reduce((a, b) => a + b, 0)
+    // 段前字距（代际数字 track-out）：落笔位置前移，推进量计入画布宽
+    const gapOf = (seg: InkSegment) => (seg.gapBefore ?? 0) * px
+    const advances = segments.map((seg, i) => widths[i]! + gapOf(seg))
+    const totalW = advances.reduce((a, b) => a + b, 0)
     if (totalW <= 0) return null
 
     const ascent = capProbe.fontBoundingBoxAscent > 0 ? capProbe.fontBoundingBoxAscent : px * 0.8
@@ -477,10 +564,11 @@ function buildInkBlock(
         const symCap = sym.actualBoundingBoxAscent > 0 ? sym.actualBoundingBoxAscent : px
         segPx = px * (capH / symCap)
       }
+      const gx = gapOf(seg)
       c.font = fontShorthand(segDef, segSt.weight, segPx, segSt.italic)
       c.fillStyle = seg.color ?? color
-      c.fillText(seg.text, cursor, pad + ascent)
-      cursor += widths[i]!
+      c.fillText(seg.text, cursor + gx, pad + ascent)
+      cursor += advances[i]!
     })
 
     // 2. 只做水平裁切（去掉左右侧留白）；**垂直保留完整字体盒**（上伸+下伸）——

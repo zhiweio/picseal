@@ -393,6 +393,61 @@ blur.json 的文字槽位带 `trim: true`——**墨迹语义**：机型/参数�
 
 **验证**：`pnpm typecheck` ✅、214/214 ✅（slot-style 新增符号家族拒绝与 colorOverridden 判据用例；canvas-utils 新增 drawInkSegments 锁定用例——行级 300+斜体覆写下正文段 `italic 300 Roboto`、Z 段恒为 `400 NikonZSymbol`）。无 Z 系机身样片，mark 门控的浏览器端到端以非 Z 机型无标回归替代（单元测试覆盖字形锁定）。
 
+### 5.13 NIKON 机身字标（2026-10-06，用户指定：机型行 NIKON 子串用相机铭牌同款字体并锁定）
+
+**字体考据**：尼康机身/镜头上的「NIKON」是**定制字标**（custom lettering，注册商标，无公开字体可购买或分发；2003 年从经典字标精修而来），特征为粗黑、前倾的 grotesque 大写（N/K 交接处有独特切角）。社区通行的免费近似均为 Helvetica 系粗黑斜体。依据仓库"仅打包 OFL/免费字体"约束，取 **Archivo ExtraBold（800）+ 合成斜体**近似——Archivo 属 Helvetica 系 grotesque、本就是默认铭牌字体，零新增资源。
+
+**实现**（在 Z 符号锁定的三层防线之上泛化为「品牌字形标记」）：
+1. `InkMark` 扩展 `wordmark` 字段（match/family/weight/italic），`InkSegment` 增加显式 `weight/italic`；`markSegments` 重写为品牌段切分器：字标子串**大小写不敏感匹配、保留原文**（'Nikon D850' 亦命中），与 Z 字符切换共存。
+2. 段样式优先级贯穿 `buildInkBlock`/`drawInkSegments` 两条路径：**品牌锁定段显式样式 > 异字体段锁定（Z 恒为符号字体自身主字重非斜体）> 行样式**——行级字体覆写任何情况下不污染品牌字形。
+3. `renderPhoto` 门控：`brandId==='nikon'` 且机型文本含 NIKON 时注入字标段（'NIKKOR' 不含 NIKON 不会误匹配）；字标家族 Latin 子集预载，失败时剥离字标段整行一体呈现（不阻断渲染，A11）。
+4. 颜色语义：字标颜色恒随行色（行默认色或显式覆写色）——"颜色可变"；Z 符号仍保持品牌色语义（nikon-z 模板红 Z / 白底正文色 Z），行色显式覆写时才跟随。墨迹位图缓存键纳入 wordmark 标识。
+5. 字号随行：字标段在行墨迹块内按大写字高归一（与 Z 符号同机制），行字号缩放自然带动。
+
+**验证**：`pnpm typecheck` ✅、219/219 ✅（markSegments 新增字标/大小写/NIKKOR 不误匹配/无门控退化用例；drawInkSegments 新增字标显式样式用例）。浏览器实测 D850 样片：默认横幅「**NIKON** D850」字标粗黑斜体、正文普惠体；机型行覆写（霞鹜文楷+斜体+橙）后字标仅颜色跟随、字形不变。
+
+
+### 5.14 品牌锁定字形架构化：槽位门控 + 数据驱动品牌注册表（2026-10-06）
+
+**问题**：5.12/5.13 的实现把尼康两个锁定样式（Z 符号 + NIKON 字标）硬编码在 `renderPhoto`，且 mark 全局注入——所有行（含镜头行 NIKKOR **Z** 50mm）的 Z 都被切换符号字形，违背"仅机型信息的 Z 生效"语义；为索尼等品牌加锁定需改渲染代码。
+
+**槽位门控**：门控规则统一为「槽位内容含 `$model` 令牌即生效」，覆盖横幅四象限、雾面卡机型/参数行、角标各行（图注模板「机型+时间」复合行一致生效，用户确认）。镜头（NIKKOR Z）/参数/自定义文字写在其他槽位一律如常渲染。边界：复合行中日期/坐标无 Z，槽位级判定满足语义（不做行内 span 级精度）；自定义文字写在机型槽位视为机型信息。实现：`renderPhoto` 计算 `bannerSlotMarks`（Partial<Record<BannerSlotPos, InkMark>>）/ `modelMark`/`paramsMark` / `cornerLineMarks`，`MeasureInput` 增 mark 字段，测量/solve/绘制全链路按槽位取各自 mark（solve 与落位同口径）。
+
+**数据驱动品牌注册表**：`BrandDef.glyph?: BrandGlyphMark`（types.ts）——
+```ts
+glyph: {
+  wordmark: { match: 'NIKON', family: 'archivo', weight: 800, italic: true },  // 机身铭牌近似
+  symbol: { char: 'Z', family: 'nikon-z-symbol', modelPattern: /\bZ/ }          // 仅 Z 系机型（R-04）
+}
+```
+`resolveBrandMark(brand, modelPretty, markColor)`（brands/index.ts 纯函数）把数据解析为渲染标记 `InkMark`（重构为 `{ symbol?: {char,family,color}, wordmark?: {...} }`——symbol.char 数据化，为任意品牌符号字符预留）。**新增品牌锁定 = 只加 BrandDef.glyph 数据，渲染层零改动**。symbol 颜色 = 模板 `typography.markColor`（红 Z 语义泛化为任意模板可声明）；字体加载按 symbol/wordmark 家族分别 `ensureFamily` 容错（失败剥离对应段，不阻断渲染）；墨迹缓存键纳入 symbol.char。
+
+**验证**：`pnpm typecheck` ✅、224/224 ✅（新增 resolveBrandMark 三分支、nikon glyph 数据断言、banner 槽位门控——marks 仅 leftTop 时其余行 measure 不携带 mark、markSegments 任意符号字符用例）。浏览器实测 Z8 样片：机型行「**NIKON** Z 8」字标 + 符号 Z 生效，镜头行自定义「NIKKOR Z 50mm f/1.8 S」两个 Z 均为普通字形——其余如常。
+
+### 5.15 品牌官方字体复刻 + 代际罗马数字锁定（2026-10-06，用户决策：仅学习使用、侵删、来源注记）
+
+**决策**：品牌锁定字形不走 OFL 近似，直接复刻各品牌官方字形；素材全部在 `public/fonts/brands/SOURCES.md` 注明网络来源与日期（仅学习使用，侵删）。核心水印字体保持 OFL；`fonts/registry` 新增 `group: 'brand'`（与 `symbol` 一样不进 UI 选择器），AGENTS.md 字体条目补注该目录例外。
+
+**检索结论 → 字体映射**（各品牌机身字形均为定制，官方字体不公开分发；来源 URL 见 SOURCES.md）：
+| 品牌 | 素材 | 用途 |
+|---|---|---|
+| sony | **SST Roman**（官方企业字体，Monotype 合作设计，社区副本，含 α U+03B1） | SONY 字标 + 代际数字 |
+| sony | **官方 Alpha logo SVG → fontTools 转制单字形 TTF**（svgPath→TransformPen 翻 Y→cu2qu 二次化→FontBuilder） | α 标志（symbol 段，modelPattern /α/） |
+| nikon | Nexa Bold（社区公认尼康字标近似；fan「Nikon 字体」实为 Nexa 换皮）+ 合成斜体 | NIKON 字标 |
+| canon / olympus | CANON.woff / OLYMRG__.woff（字标字形复刻，目验为标志性字面） | CANON / OLYMPUS 字标 |
+| fujifilm / panasonic / pentax / ricoh | 无可信字标复刻（定制字标），代际数字用打包字体（roboto 500 / archivo 700） | 仅 numerals |
+| leica / hasselblad | 机身型号为阿拉伯数字传统（M11 / Q3 / 907X / X2D） | 不配 glyph（数据缺席即不生效） |
+
+**代际罗马数字机制**（第三类品牌锁定段）：`BrandGlyphMark.numerals?: { pattern; family; weight; italic?; spacing? }`——pattern 在机型行文本取末锚匹配（共享工厂 `ROMAN_SUFFIX`（合法罗马数字 I–X 校验，拒绝 IIX/IL）/`MARK_SUFFIX`（"Mark II" 整段）导出自 brands/index.ts，品牌数据引用或自定义）；`InkSegment.gapBefore`（em）实现段前 track-out 字距（引文"字距稍微拉开"），buildInkBlock 与 drawInkSegments 两条绘制路径同口径推进；"大写高度严格对齐"由既有异字体段大写字高归一免费满足；数字颜色恒随行色。锁定语义不变：仅字号与颜色可变。数字家族 `ensureFamily` 容错加载（失败剥离数字段）。
+
+**渲染标记切分示例**（'NIKON Z 6III'，三类段共存）：`[NIKON 字标][' ']['Z' 符号][' 6' 正文]['III' 数字+gap]`。
+
+**验证**：`pnpm typecheck` ✅、237/237 ✅（markSegments 三类段共存/非法写法不匹配/D850 无后缀退化；drawInkSegments gap 推进落笔 x 断言；resolveBrandMark 索尼 α+SONY / 佳能 Mark II / leica 缺席；glyph 数据快照）。浏览器：Z 6III 样片三类段一次验全、sony 样片 α 复刻、D850 回归。
+
+**后续接入**：新品牌 = （可选）字体文件落 `public/fonts/brands/` + SOURCES.md 一行 + BRANDS 条目加 glyph 数据；字标/符号/数字三类段任意组合，渲染层零改动。
+
+
+
 
 ## 6. 环境与产物索引
 

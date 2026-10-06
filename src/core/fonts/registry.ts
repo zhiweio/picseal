@@ -17,8 +17,13 @@ export type FontFamilyId =
   | 'smiley-sans'
   | 'ma-shan-zheng'
   | 'nikon-z-symbol'
+  | 'brand-sony'
+  | 'brand-sony-alpha'
+  | 'brand-nikon'
+  | 'brand-canon'
+  | 'brand-olympus'
 
-export type FontGroup = 'sans' | 'condensed' | 'serif' | 'calligraphy' | 'symbol'
+export type FontGroup = 'sans' | 'condensed' | 'serif' | 'calligraphy' | 'symbol' | 'brand'
 
 export interface FontFamilyDef {
   id: FontFamilyId
@@ -199,6 +204,58 @@ export const FONT_FAMILIES: Record<FontFamilyId, FontFamilyDef> = {
     mainWeight: 400,
     subWeight: 400,
     latin: { 400: '/fonts/wm/special-alphabets-p04.otf' }
+  },
+  /* ── 品牌锁定字形字体（public/fonts/brands/，仅学习使用见 SOURCES.md；group brand 不进 UI） ── */
+  'brand-sony': {
+    id: 'brand-sony',
+    name: 'Sony SST（官方企业字体）',
+    group: 'brand',
+    cssName: 'Picseal Sony SST',
+    weights: [400],
+    mainWeight: 400,
+    subWeight: 400,
+    latin: { 400: '/fonts/brands/sony-sst.woff' }
+  },
+  'brand-sony-alpha': {
+    id: 'brand-sony-alpha',
+    name: 'Sony α（官方 Alpha 标志）',
+    group: 'brand',
+    cssName: 'Picseal Sony Alpha',
+    weights: [400],
+    mainWeight: 400,
+    subWeight: 400,
+    // 官方 Alpha logo SVG 经 fontTools 转制的单字形字体（α，U+03B1）
+    latin: { 400: '/fonts/brands/sony-alpha.ttf' }
+  },
+  'brand-nikon': {
+    id: 'brand-nikon',
+    name: 'Nikon 字标（Nexa Bold）',
+    group: 'brand',
+    cssName: 'Picseal Nikon Wordmark',
+    weights: [400],
+    mainWeight: 400,
+    subWeight: 400,
+    latin: { 400: '/fonts/brands/nikon-nexa-bold.woff' }
+  },
+  'brand-canon': {
+    id: 'brand-canon',
+    name: 'Canon 字标',
+    group: 'brand',
+    cssName: 'Picseal Canon Wordmark',
+    weights: [400],
+    mainWeight: 400,
+    subWeight: 400,
+    latin: { 400: '/fonts/brands/canon-logo.woff' }
+  },
+  'brand-olympus': {
+    id: 'brand-olympus',
+    name: 'Olympus 字标',
+    group: 'brand',
+    cssName: 'Picseal Olympus Wordmark',
+    weights: [400],
+    mainWeight: 400,
+    subWeight: 400,
+    latin: { 400: '/fonts/brands/olympus-logo.woff' }
   }
 }
 
@@ -215,8 +272,8 @@ export function getFontFamily(id: string | undefined): FontFamilyDef {
   return FONT_FAMILIES[(id ?? DEFAULT_FONT) as FontFamilyId] ?? FONT_FAMILIES[DEFAULT_FONT]
 }
 
-/** UI 字体分组（'symbol' 组不进选择器，仅供渲染内部消费） */
-export const FONT_GROUP_LABELS: Record<Exclude<FontGroup, 'symbol'>, { zh: string; en: string }> = {
+/** UI 字体分组（'symbol' / 'brand' 组不进选择器：符号与品牌锁定字形仅供渲染内部消费） */
+export const FONT_GROUP_LABELS: Record<Exclude<FontGroup, 'symbol' | 'brand'>, { zh: string; en: string }> = {
   sans: { zh: '无衬线 · 铭牌', en: 'SANS' },
   condensed: { zh: '窄体 · 镜头环', en: 'CONDENSED' },
   serif: { zh: '衬线 · 文艺', en: 'SERIF' },
