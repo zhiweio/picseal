@@ -101,7 +101,13 @@
       "prev": "Previous",
       "next": "Next",
       "noExif": "No readable capture info on this frame",
-      "sortByTime": "Sort by capture time (drag to customize order)"
+      "sortByTime": "Sort by capture time (drag to customize order)",
+      "remove": "Remove from workspace",
+      "exifReading": "Reading capture info…",
+      "exifOk": "Capture info loaded",
+      "removedOne": "Removed {name}",
+      "removedMany": "Removed {count} frames",
+      "undo": "Undo"
     },
     "template": {
       "label": "Output Preset",
@@ -178,8 +184,7 @@
       "namingDate": "Capture time",
       "namingIndex": "Index",
       "downloadThis": "Download current",
-      "batchRun": "Process all {count} frames",
-      "batchSelected": "Process {count} selected"
+      "batchRun": "Process all {count} frames"
     },
     "preset": {
       "label": "Preset",
@@ -201,7 +206,6 @@
       "labelEn": "BATCH",
       "confirmTitle": "Start batch production",
       "scopeAll": "All {count} frames",
-      "scopeSelected": "{count} selected",
       "scopePending": "{count} pending",
       "start": "Start",
       "running": "Running",

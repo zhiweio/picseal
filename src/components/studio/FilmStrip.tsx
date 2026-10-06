@@ -4,21 +4,23 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
-import { FileArchive, FolderOpen, ImagePlus, Pin, Plus } from 'lucide-react'
+import { FileArchive, FolderOpen, ImagePlus, Pin, Plus, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { moveRelative } from '@/core/order'
 import { usePhotos, photoDisplayOrder, type PhotoItem } from '@/stores/photos'
 import { StatusDot, TermSwitch } from '@/components/ui/primitives'
 
-/** 左侧刻度尺胶片条：添加入口 + 排序开关 + 缩略图轨（可拖拽自由排序）+ tick 导航 + 队列状态灯 + 样片别针 */
+/** 左侧刻度尺胶片条：添加入口 + 排序开关 + 缩略图轨（可拖拽自由排序 + hover 移除）+ tick 导航 + EXIF 状态灯 + 样片别针 */
 export function FilmStrip({
   onPickFiles,
   onPickFolder,
-  onPickZip
+  onPickZip,
+  onRemove
 }: {
   onPickFiles: () => void
   onPickFolder: () => void
   onPickZip: () => void
+  onRemove: (id: string) => void
 }) {
   const t = useTranslations('studio')
   const items = usePhotos((s) => s.items)
@@ -26,7 +28,6 @@ export function FilmStrip({
   const sampleId = usePhotos((s) => s.sampleId)
   const sortMode = usePhotos((s) => s.sortMode)
   const setCurrent = usePhotos((s) => s.setCurrent)
-  const toggleSelected = usePhotos((s) => s.toggleSelected)
   const setSortMode = usePhotos((s) => s.setSortMode)
   const reorderIds = usePhotos((s) => s.reorderIds)
 
@@ -211,7 +212,7 @@ export function FilmStrip({
                   dragging={dragId === photo.id}
                   dropHint={dropHint?.id === photo.id ? dropHint.position : null}
                   onNavigate={() => setCurrent(photo.id)}
-                  onSelect={(v) => toggleSelected(photo.id, v)}
+                  onRemove={() => onRemove(photo.id)}
                   onDragStart={(e) => {
                     setDragId(photo.id)
                     e.dataTransfer.effectAllowed = 'move'
@@ -270,7 +271,7 @@ function FrameCell({
   dragging,
   dropHint,
   onNavigate,
-  onSelect,
+  onRemove,
   onDragStart,
   onDragOver,
   onDrop
@@ -281,11 +282,19 @@ function FrameCell({
   dragging: boolean
   dropHint: 'before' | 'after' | null
   onNavigate: () => void
-  onSelect: (v: boolean) => void
+  onRemove: () => void
   onDragStart: (e: React.DragEvent) => void
   onDragOver: (e: React.DragEvent) => void
   onDrop: (e: React.DragEvent) => void
 }) {
+  const t = useTranslations('studio')
+  const metaTitle =
+    photo.metaStatus === 'pending'
+      ? t('frame.exifReading')
+      : photo.metaStatus === 'ok'
+        ? t('frame.exifOk')
+        : t('frame.noExif')
+
   return (
     <div
       className={clsx(
@@ -328,21 +337,30 @@ function FrameCell({
             <Pin size={9} />
           </span>
         ) : null}
+        {/* EXIF 状态灯：解析中（呼吸）/ 已读取（绿）/ 无拍摄信息（灰） */}
+        <span
+          title={metaTitle}
+          className="absolute bottom-0 right-0 flex h-3 w-3 items-center justify-center bg-page/80"
+        >
+          <StatusDot
+            state={photo.metaStatus === 'pending' ? 'work' : photo.metaStatus === 'ok' ? 'ok' : 'idle'}
+          />
+        </span>
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <StatusDot
-          state={photo.metaStatus === 'pending' ? 'work' : photo.metaStatus === 'ok' ? 'ok' : 'idle'}
-        />
-        <input
-          type="checkbox"
-          aria-label="select for batch"
-          checked={photo.selected}
-          draggable={false}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onSelect(e.target.checked)}
-          className="h-3 w-3 shrink-0 appearance-none border border-line checked:border-accent checked:bg-accent"
-        />
-      </div>
+      {/* hover 移除：直接把照片移出工作台（底部 toast 可撤销） */}
+      <button
+        type="button"
+        aria-label={t('frame.remove')}
+        title={t('frame.remove')}
+        draggable={false}
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemove()
+        }}
+        className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center border border-line bg-page/80 text-muted opacity-0 transition-opacity hover:border-accent hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"
+      >
+        <X size={10} />
+      </button>
     </div>
   )
 }

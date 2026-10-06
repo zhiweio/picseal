@@ -29,6 +29,13 @@ export function clearPreviewCache(): void {
   cache.clear()
 }
 
+/** 照片被移除时按 photoId 清理其预览与小样缓存条目（撤销后按需重渲染，无正确性风险） */
+export function purgePhotoCaches(photoId: string): void {
+  const prefix = `${photoId}|`
+  cache.deleteByPrefix(prefix)
+  miniCache.deleteByPrefix(prefix)
+}
+
 /**
  * 实时预览管线：防抖 160ms + 代际戳丢弃过期结果 + LRU 缓存。
  * 返回 null 表示首帧尚未就绪（调用方显示占位）。

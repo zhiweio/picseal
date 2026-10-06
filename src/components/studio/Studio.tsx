@@ -10,9 +10,9 @@ import { FilmStrip } from './FilmStrip'
 import { Stage } from './Stage'
 import { ControlColumn } from './ControlColumn'
 import { RunPanel } from './RunPanel'
-import { usePhotos, photoDisplayOrder } from '@/stores/photos'
+import { usePhotos, photoDisplayOrder, type PhotoItem } from '@/stores/photos'
 import { extractImagesFromZip, isZipFile } from '@/lib/zip-import'
-import { clearPreviewCache } from '@/hooks/usePreview'
+import { purgePhotoCaches } from '@/hooks/usePreview'
 
 /** 工作台：导入 → 调样 → 定稿 → 批量 → 交付 */
 export function Studio() {
@@ -25,6 +25,71 @@ export function Studio() {
   const [runOpen, setRunOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+
+  // 移除撤销桶：窗口期内保留 PhotoItem 与原索引，过期才释放缩略图 URL
+  const removals = useRef<Array<{ item: PhotoItem; index: number; wasCurrent: boolean; wasSample: boolean }>>([])
+  const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [removalToast, setRemovalToast] = useState<{ count: number; lastName: string } | null>(null)
+  const remove = usePhotos((s) => s.remove)
+  const restore = usePhotos((s) => s.restore)
+
+  const finalizeRemovals = useCallback(() => {
+    if (removeTimer.current) clearTimeout(removeTimer.current)
+    removeTimer.current = null
+    for (const entry of removals.current) {
+      if (entry.item.thumbUrl) URL.revokeObjectURL(entry.item.thumbUrl)
+    }
+    removals.current = []
+    setRemovalToast(null)
+  }, [])
+
+  const undoRemove = useCallback(() => {
+    if (removeTimer.current) clearTimeout(removeTimer.current)
+    removeTimer.current = null
+    const bin = removals.current
+    removals.current = []
+    for (let i = bin.length - 1; i >= 0; i -= 1) {
+      const entry = bin[i]!
+      restore(entry.item, entry.index, { current: entry.wasCurrent, sample: entry.wasSample })
+    }
+    setRemovalToast(null)
+  }, [restore])
+
+  const handleRemove = useCallback(
+    (id: string) => {
+      const state = usePhotos.getState()
+      const index = state.items.findIndex((p) => p.id === id)
+      if (index < 0) return
+      const item = state.items[index]!
+      const wasCurrent = state.currentId === id
+      const wasSample = state.sampleId === id
+      // 移除当前张时按显示序跳到相邻张（末张回退前一张）；remove() 自身的 items[0] 回退会被这里覆盖
+      let neighborId: string | null = null
+      if (wasCurrent) {
+        const ordered = photoDisplayOrder({ items: state.items, sortMode: state.sortMode })
+        const oi = ordered.findIndex((p) => p.id === id)
+        neighborId = (ordered[oi + 1] ?? ordered[oi - 1])?.id ?? null
+      }
+      remove(id)
+      purgePhotoCaches(id)
+      if (wasCurrent) setCurrent(neighborId)
+      removals.current.push({ item, index, wasCurrent, wasSample })
+      setRemovalToast({ count: removals.current.length, lastName: item.name })
+      if (removeTimer.current) clearTimeout(removeTimer.current)
+      removeTimer.current = setTimeout(finalizeRemovals, 6000)
+    },
+    [finalizeRemovals, remove, setCurrent]
+  )
+
+  // 卸载时释放撤销桶内未过期的缩略图 URL
+  useEffect(() => {
+    return () => {
+      if (removeTimer.current) clearTimeout(removeTimer.current)
+      for (const entry of removals.current) {
+        if (entry.item.thumbUrl) URL.revokeObjectURL(entry.item.thumbUrl)
+      }
+    }
+  }, [])
 
   // 键盘翻帧与左侧候选栏同序（时间排序开启时跟随显示序）
   const orderedItems = useMemo(() => photoDisplayOrder({ items, sortMode }), [items, sortMode])
@@ -89,10 +154,15 @@ export function Studio() {
     }
   }, [importFiles])
 
-  // 键盘：←/→ 翻帧
+  // 键盘：←/→ 翻帧；Delete/Backspace 移除当前张（可撤销）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      )
+        return
       if (runOpen) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         const index = orderedItems.findIndex((p) => p.id === usePhotos.getState().currentId)
@@ -101,11 +171,14 @@ export function Studio() {
             ? orderedItems[Math.max(0, index - 1)]
             : orderedItems[Math.min(orderedItems.length - 1, index + 1)]
         if (next) setCurrent(next.id)
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        const currentId = usePhotos.getState().currentId
+        if (currentId) handleRemove(currentId)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [orderedItems, runOpen, setCurrent])
+  }, [orderedItems, runOpen, setCurrent, handleRemove])
 
   useEffect(() => {
     if (!notice) return
@@ -127,6 +200,7 @@ export function Studio() {
             onPickFiles={() => fileInputRef.current?.click()}
             onPickFolder={() => folderInputRef.current?.click()}
             onPickZip={() => zipInputRef.current?.click()}
+            onRemove={handleRemove}
           />
         ) : null}
         {items.length > 0 ? (
@@ -173,11 +247,30 @@ export function Studio() {
         </div>
       ) : null}
 
-      {notice ? (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 border border-line bg-panel px-4 py-2 text-[12px] shadow-[var(--shadow-pop)]">
-          {notice}
-        </div>
-      ) : null}
+      {/* 底部通知：移除撤销（带操作）+ 一般提示 */}
+      <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
+        {removalToast ? (
+          <div className="pointer-events-auto flex items-center gap-3 border border-line bg-panel px-4 py-2 text-[12px] shadow-[var(--shadow-pop)]">
+            <span className="max-w-[300px] truncate">
+              {removalToast.count > 1
+                ? t('frame.removedMany', { count: removalToast.count })
+                : t('frame.removedOne', { name: removalToast.lastName })}
+            </span>
+            <button
+              type="button"
+              onClick={undoRemove}
+              className="border border-line px-2 py-0.5 text-[11px] text-accent transition-colors hover:border-accent"
+            >
+              {t('frame.undo')}
+            </button>
+          </div>
+        ) : null}
+        {notice ? (
+          <div className="border border-line bg-panel px-4 py-2 text-[12px] shadow-[var(--shadow-pop)]">
+            {notice}
+          </div>
+        ) : null}
+      </div>
 
       <RunPanel open={runOpen} onClose={() => setRunOpen(false)} />
 

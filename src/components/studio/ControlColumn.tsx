@@ -888,7 +888,6 @@ function ExportPanel({ onOpenBatch }: { onOpenBatch: () => void }) {
   const currentId = usePhotos((s) => s.currentId)
   const photo = items.find((p) => p.id === currentId)
   const [busy, setBusy] = useState(false)
-  const selectedCount = useMemo(() => items.filter((p) => p.selected).length, [items])
 
   const downloadCurrent = async () => {
     if (!photo || busy) return
@@ -982,9 +981,7 @@ function ExportPanel({ onOpenBatch }: { onOpenBatch: () => void }) {
           disabled={items.length === 0}
           className="h-9 bg-ink text-[12px] font-medium tracking-[1px] text-page transition-opacity hover:opacity-85 disabled:opacity-40"
         >
-          {selectedCount > 0
-            ? t('export.batchSelected', { count: selectedCount })
-            : t('export.batchRun', { count: items.length })}
+          {t('export.batchRun', { count: items.length })}
         </button>
       </div>
     </Panel>

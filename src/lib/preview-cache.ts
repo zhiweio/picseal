@@ -54,6 +54,18 @@ export class BlobUrlCache<V> {
     this.map.delete(key)
   }
 
+  /** 删除键前缀匹配的全部条目（照片移除时按 photoId 清缓存），返回删除条数 */
+  deleteByPrefix(prefix: string): number {
+    let removed = 0
+    for (const key of [...this.map.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.delete(key)
+        removed += 1
+      }
+    }
+    return removed
+  }
+
   /** 清空并释放全部 URL */
   clear(): void {
     for (const value of this.map.values()) {

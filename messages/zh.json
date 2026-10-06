@@ -101,7 +101,13 @@
       "prev": "上一张",
       "next": "下一张",
       "noExif": "此照片没有可读取的拍摄信息",
-      "sortByTime": "按拍摄时间排序（拖拽可自定义顺序）"
+      "sortByTime": "按拍摄时间排序（拖拽可自定义顺序）",
+      "remove": "从工作台移除",
+      "exifReading": "正在读取拍摄信息…",
+      "exifOk": "已读取拍摄信息",
+      "removedOne": "已移除 {name}",
+      "removedMany": "已移除 {count} 张",
+      "undo": "撤销"
     },
     "template": {
       "label": "输出模板",
@@ -178,8 +184,7 @@
       "namingDate": "拍摄时间",
       "namingIndex": "序号",
       "downloadThis": "下载当前",
-      "batchRun": "以此配置处理全部 {count} 张",
-      "batchSelected": "处理选中的 {count} 张"
+      "batchRun": "以此配置处理全部 {count} 张"
     },
     "preset": {
       "label": "预设",
@@ -201,7 +206,6 @@
       "labelEn": "BATCH",
       "confirmTitle": "开始批量处理",
       "scopeAll": "全部 {count} 张",
-      "scopeSelected": "选中的 {count} 张",
       "scopePending": "未处理的 {count} 张",
       "start": "开始处理",
       "running": "处理中",

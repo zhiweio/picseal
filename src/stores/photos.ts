@@ -25,7 +25,6 @@ export interface PhotoItem {
   metaStatus: MetaStatus
   /** 扩展名嗅探的类型（EXIF 拷贝用） */
   sourceType?: string
-  selected: boolean
 }
 
 /** 应用支持的输入格式（解码能力见 README 格式矩阵） */
@@ -57,10 +56,10 @@ interface PhotosState {
   sortMode: PhotoSortMode
   addFiles: (files: File[]) => Promise<ImportedSummary>
   remove: (id: string) => void
+  /** 撤销移除：按原索引插回（clamp 越界），并可恢复当时的 current/sample 指向 */
+  restore: (item: PhotoItem, index: number, opts?: { current?: boolean; sample?: boolean }) => void
   clear: () => void
   setCurrent: (id: string | null) => void
-  toggleSelected: (id: string, value?: boolean) => void
-  selectAll: (value: boolean) => void
   setSortMode: (mode: PhotoSortMode) => void
   /** 以给定 id 全序重排 items（拖拽自定义顺序；id 集合必须与 items 一致） */
   reorderIds: (ids: string[]) => void
@@ -105,8 +104,7 @@ export const usePhotos = create<PhotosState>((set, get) => ({
         name: file.name,
         size: file.size,
         metaStatus: 'pending',
-        sourceType: type,
-        selected: false
+        sourceType: type
       })
     }
 
@@ -172,15 +170,27 @@ export const usePhotos = create<PhotosState>((set, get) => ({
     return { added: accepted.length, skipped }
   },
 
+  // 注意：remove 不吊销 thumbUrl —— 撤销窗口内缩略图必须存活；
+  // 资源释放由调用方在撤销窗口过期后统一执行（见 Studio 的移除编排）
   remove: (id) =>
     set((state) => {
       const items = state.items.filter((p) => p.id !== id)
-      const removed = state.items.find((p) => p.id === id)
-      if (removed?.thumbUrl) URL.revokeObjectURL(removed.thumbUrl)
       const currentId =
         state.currentId === id ? (items[0]?.id ?? null) : state.currentId
       const sampleId = state.sampleId === id ? (items[0]?.id ?? null) : state.sampleId
       return { items, currentId, sampleId }
+    }),
+
+  restore: (item, index, opts) =>
+    set((state) => {
+      if (state.items.some((p) => p.id === item.id)) return state
+      const items = [...state.items]
+      items.splice(Math.min(Math.max(index, 0), items.length), 0, item)
+      return {
+        items,
+        currentId: opts?.current ? item.id : state.currentId,
+        sampleId: opts?.sample ? item.id : state.sampleId
+      }
     }),
 
   clear: () => {
@@ -191,16 +201,6 @@ export const usePhotos = create<PhotosState>((set, get) => ({
   },
 
   setCurrent: (id) => set({ currentId: id }),
-
-  toggleSelected: (id, value) =>
-    set((state) => ({
-      items: state.items.map((p) =>
-        p.id === id ? { ...p, selected: value ?? !p.selected } : p
-      )
-    })),
-
-  selectAll: (value) =>
-    set((state) => ({ items: state.items.map((p) => ({ ...p, selected: value })) })),
 
   setSortMode: (mode) => set({ sortMode: mode }),
 

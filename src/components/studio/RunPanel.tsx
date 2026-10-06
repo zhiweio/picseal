@@ -20,14 +20,10 @@ export function RunPanel({ open, onClose }: { open: boolean; onClose: () => void
   const items = usePhotos((s) => s.items)
   const template = useSettings((s) => s.template)
   const output = useSettings((s) => s.output)
-  const [scope, setScope] = useState<'all' | 'selected'>('all')
-
-  const selected = items.filter((p) => p.selected)
-  const scopePhotos = scope === 'selected' && selected.length > 0 ? selected : items
 
   const start = () => {
     useQueue.getState().start(
-      scopePhotos,
+      items,
       template,
       output,
       `${tr(`templates.${template.id}.name`, { defaultMessage: template.id })} · ${output.format.toUpperCase()}${
@@ -66,54 +62,23 @@ export function RunPanel({ open, onClose }: { open: boolean; onClose: () => void
           </button>
         </header>
 
-        {hasRun ? <RunView onClose={onClose} /> : <StartView scope={scope} setScope={setScope} onStart={start} />}
+        {hasRun ? <RunView onClose={onClose} /> : <StartView onStart={start} />}
       </div>
     </div>
   )
 }
 
-function StartView({
-  scope,
-  setScope,
-  onStart
-}: {
-  scope: 'all' | 'selected'
-  setScope: (v: 'all' | 'selected') => void
-  onStart: () => void
-}) {
+function StartView({ onStart }: { onStart: () => void }) {
   const t = useTranslations('studio')
   const tr = useTranslations()
   const items = usePhotos((s) => s.items)
   const template = useSettings((s) => s.template)
   const output = useSettings((s) => s.output)
-  const selected = items.filter((p) => p.selected)
-  const scopePhotos = scope === 'selected' && selected.length > 0 ? selected : items
 
   return (
     <div className="px-5 py-5">
       <h3 className="mb-3 text-[14px] font-semibold">{t('queue.confirmTitle')}</h3>
-      <div className="flex flex-col gap-1.5">
-        <label className="flex cursor-pointer items-center gap-2 text-[12px]">
-          <input
-            type="radio"
-            checked={scope === 'all'}
-            onChange={() => setScope('all')}
-            className="h-3 w-3 accent-[var(--accent)]"
-          />
-          {t('queue.scopeAll', { count: items.length })}
-        </label>
-        {selected.length > 0 ? (
-          <label className="flex cursor-pointer items-center gap-2 text-[12px]">
-            <input
-              type="radio"
-              checked={scope === 'selected'}
-              onChange={() => setScope('selected')}
-              className="h-3 w-3 accent-[var(--accent)]"
-            />
-            {t('queue.scopeSelected', { count: selected.length })}
-          </label>
-        ) : null}
-      </div>
+      <p className="text-[12px] text-muted">{t('queue.scopeAll', { count: items.length })}</p>
 
       <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-1.5 border border-line p-3 text-[11px]">
         <div className="flex justify-between">
@@ -140,10 +105,10 @@ function StartView({
       <button
         type="button"
         onClick={onStart}
-        disabled={scopePhotos.length === 0}
+        disabled={items.length === 0}
         className="mt-4 h-9 w-full bg-ink text-[12px] font-medium tracking-[1px] text-page transition-opacity hover:opacity-85 disabled:opacity-40"
       >
-        {t('queue.start')} · {scopePhotos.length} FRAMES
+        {t('queue.start')} · {items.length} FRAMES
       </button>
     </div>
   )
